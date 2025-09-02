@@ -1,0 +1,50 @@
+name: CaijiBeijingip
+
+on:
+  schedule:
+    - cron: "01 20 * * *"
+  workflow_dispatch:
+
+jobs:
+  run-script:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0   
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: 3.11
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: 获取源
+        run: |
+          cd $GITHUB_WORKSPACE
+          python ./CaijiBeijingip.py
+          
+      - name: Install Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y yt-dlp sed nmap
+        
+      - name: 测试源
+        run: |
+          cd $GITHUB_WORKSPACE
+          cat zubo.txt > zubo_bf.txt
+          bash ./CaijiBeijingip.sh
+          cat txt/Beijing_dianxin.txt > zubo.txt
+          
+      - name: 更新源
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add .
+          git commit -m "更新源"
+          git push
