@@ -64,4 +64,3 @@ http://ipipip/rtp/225.1.8.212:8002
 http://ipipip/rtp/225.1.8.214:8002
 #EXTINF:-1 tvg-id="晴彩广场舞" tvg-name="睛彩广场舞" tvg-logo="https://www.yangfeiyue.cn/tv/睛彩广场舞.png" group-title="卫视高清",睛彩广场舞
 http://ipipip/rtp/225.1.8.215:8002
-
