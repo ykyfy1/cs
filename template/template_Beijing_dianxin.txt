@@ -12,7 +12,7 @@ http://ipipip/rtp/225.1.8.180:4222
 http://ipipip/rtp/225.1.8.181:4222
 #EXTINF:-1 tvg-id="北京IPTV4K超清" tvg-name="北京IPTV4K超清" tvg-logo="https://live.fanmingming.com/tv/北京IPTV4K超清.png" group-title="本地高清",北京IPTV4K超清
 http://ipipip/rtp/225.1.8.211:8002
-#EXTINF:-1 tvg-id="重温经典//" tvg-name="重温经典//" tvg-logo="https://live.fanmingming.com/tv/重温经典//.png" " group-title="本地高清",重温经典//
+#EXTINF:-1 tvg-id="重温经典电影" tvg-name="重温经典电影" tvg-logo="https://live.fanmingming.com/tv/重温经典电影.png" " group-title="本地高清",重温经典电影
 http://ipipip/rtp/225.1.8.39:8002
 #EXTINF:-1 tvg-id="华数4K影视" tvg-name="华数4K影视" tvg-logo="https://live.fanmingming.com/tv/华数4K影视.png" group-title="本地高清",华数4K影视
 http://ipipip/rtp/225.1.8.80:2000
@@ -64,3 +64,4 @@ http://ipipip/rtp/225.1.8.212:8002
 http://ipipip/rtp/225.1.8.214:8002
 #EXTINF:-1 tvg-id="晴彩广场舞" tvg-name="睛彩广场舞" tvg-logo="https://www.yangfeiyue.cn/tv/睛彩广场舞.png" group-title="卫视高清",睛彩广场舞
 http://ipipip/rtp/225.1.8.215:8002
+
