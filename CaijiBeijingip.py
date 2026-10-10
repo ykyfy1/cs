@@ -83,7 +83,7 @@ def scan_ip_port(ip, port, url_end, prefix_seg):
     checked = [0]
     Thread(target=show_progress, daemon=True).start()
     # Github Action建议改成max_workers=100，本地可以300
-    with ThreadPoolExecutor(max_workers=100) as executor:
+    with ThreadPoolExecutor(max_workers=50) as executor:
         futures = {executor.submit(check_ip_port, ip_port, url_end): ip_port for ip_port in ip_ports}
         for future in as_completed(futures):
             result = future.result()
