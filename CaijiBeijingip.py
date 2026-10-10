@@ -1,29 +1,68 @@
 from threading import Thread
 import os
 import time
+import datetime
 import glob
 import requests
 from concurrent.futures import ThreadPoolExecutor, as_completed
+
+
 def read_config(config_file):
     print(f"读取设置文件：{config_file}")
     ip_configs = []
     try:
         with open(config_file, 'r') as f:
             for line_num, line in enumerate(f, 1):
-                if "," in line and not line.startswith("#"):
-                    parts = line.strip().split(',')
-                    ip_part, port = parts[0].strip().split(':')
-                    a, b, c, d = ip_part.split('.')
-                    ip = f"{a}.{b}.1.1"
-                    url_end = "/stat" if int(parts[1]) == 1 else "/status"
-                    ip_configs.append((ip, port, url_end))
-                    print(f"第{line_num}行：http://{ip}:{port}{url_end}添加到扫描列表")
+                line = line.strip()
+                if "," in line and not line.startswith("#") and line:
+                    parts = line.split(',')
+                    ip_port_raw = parts[0].strip()
+                    ip_part, port_str = ip_port_raw.split(':')
+                    # |分割多端口
+                    port_list = port_str.split("|")
+                    option = int(parts[1])
+                    url_end = "/status" if option >= 10 else "/stat"
+
+                    # =========【修改点】=========
+                    if option == 99:
+                        # option=99：固定IP模式，保留原始IP，不自动修改IP
+                        ip = ip_part
+                    else:
+                        # 原有网段模式逻辑不变
+                        a, b, c, d = ip_part.split('.')
+                        ip = f"{a}.{b}.{c}.1" if option % 2 == 0 else f"{a}.{b}.1.1"
+                    # ============================
+
+                    # 循环所有端口，逐个加入扫描任务
+                    for port in port_list:
+                        port = port.strip()
+                        ip_configs.append((ip, port, option, url_end))
+                        print(f"第{line_num}行：http://{ip}:{port}{url_end} 添加到扫描列表")
         return ip_configs
     except Exception as e:
         print(f"读取文件错误: {e}")
-        return None
-# 发送get请求检测url是否可访问        
-def check_ip_port(ip_port, url_end):    
+
+
+def generate_ip_ports(ip, port, option):
+    a, b, c, d = ip.split('.')
+    # =========【修改点】=========
+    if option == 99:
+        # 固定IP模式：不扫网段，只返回这单个ip:port
+        return [f"{ip}:{port}"]
+    # ============================
+    elif option == 2 or option == 12:
+        c_extent = c.split('-')
+        c_first = int(c_extent[0]) if len(c_extent) == 2 else int(c)
+        c_last = int(c_extent[1]) + 1 if len(c_extent) == 2 else int(c) + 8
+        return [f"{a}.{b}.{x}.{y}:{port}" for x in range(c_first, c_last) for y in range(1, 256)]
+    elif option == 0 or option == 10:
+        return [f"{a}.{b}.{c}.{y}:{port}" for y in range(1, 256)]
+    else:
+        return [f"{a}.{b}.{x}.{y}:{port}" for x in range(256) for y in range(1, 256)]
+
+
+# 发送get请求检测url是否可访问
+def check_ip_port(ip_port, url_end):
     try:
         url = f"http://{ip_port}{url_end}"
         resp = requests.get(url, timeout=2)
@@ -31,20 +70,31 @@ def check_ip_port(ip_port, url_end):
         if "Multi stream daemon" in resp.text or "udpxy status" in resp.text:
             print(f"{url} 访问成功")
             return ip_port
-    except:
+    except Exception as e:
+        # 调试用，可注释，github环境可以看到失败原因
+        # print(f"{ip_port} 访问失败: {str(e)}")
         return None
+
+
 # 多线程检测url，获取有效ip_port
-def scan_ip_port(ip, port, url_end):
+def scan_ip_port(ip, port, option, url_end):
     def show_progress():
         while checked[0] < len(ip_ports):
             print(f"已扫描：{checked[0]}/{len(ip_ports)}, 有效ip_port：{len(valid_ip_ports)}个")
-            time.sleep(20)
+            time.sleep(30)
+
     valid_ip_ports = []
-    a, b, c, d = map(int, ip.split('.'))
-    ip_ports = [f"{a}.{b}.{x}.{y}:{port}" for x in range(256) for y in range(1,256)]
+    ip_ports = generate_ip_ports(ip, port, option)
     checked = [0]
     Thread(target=show_progress, daemon=True).start()
-    with ThreadPoolExecutor(max_workers=300) as executor:
+
+    # 固定IP模式降低并发，避免线程过多浪费资源
+    if option == 99:
+        worker_num = 10
+    else:
+        worker_num = 300 if option % 2 == 1 else 100
+
+    with ThreadPoolExecutor(max_workers=worker_num) as executor:
         futures = {executor.submit(check_ip_port, ip_port, url_end): ip_port for ip_port in ip_ports}
         for future in as_completed(futures):
             result = future.result()
@@ -53,33 +103,87 @@ def scan_ip_port(ip, port, url_end):
             checked[0] += 1
     return valid_ip_ports
 
+
 def multicast_province(config_file):
     filename = os.path.basename(config_file)
-    province, operator = filename.split('_')[:2]
-    print(f"{'='*25}\n   获取: {province}_{operator}ip_port\n{'='*25}")
-    configs = set(read_config(config_file))
+    province = filename.split('_')[0]
+    print(f"{'='*25}\n   获取: {province}ip_port\n{'='*25}")
+    configs = sorted(set(read_config(config_file)))
     print(f"读取完成，共需扫描 {len(configs)}组")
     all_ip_ports = []
-    for ip, port, url_end in configs:
+    for ip, port, option, url_end in configs:
         print(f"\n开始扫描  http://{ip}:{port}{url_end}")
-        all_ip_ports.extend(scan_ip_port(ip, port, url_end))
-    all_ip_ports = sorted(set(all_ip_ports))
-    print(f"\n{province}_{operator} 扫描完成，获取有效ip_port共：{len(all_ip_ports)}个\n{all_ip_ports}\n")
-    with open(f"ip/{province}_{operator}_ip.txt", 'w', encoding='utf-8') as f:
-        f.write('\n'.join(all_ip_ports) + '\n')    #有效ip_port写入文件
-    template_file = os.path.join('template', f"template_{province}_{operator}.txt")
-    if not os.path.exists(template_file):
-        print(f"缺少模板文件: {template_file}")
-        return    
-    with open(template_file, 'r', encoding='utf-8') as f:
-        channels = f.readlines()    
-    output = []
-    for ip in all_ip_ports:
-        output.extend([channel.replace("ipipip", f"{ip}") for channel in channels])    
-    with open(f"组播_{province}_{operator}.txt", 'w', encoding='utf-8') as f:
-        f.write(f"{province}_{operator}-组播,#genre#\n")
-        for channel in output:
-            f.write(channel)
-for config_file in glob.glob(os.path.join('ip', '*_config.txt')):
-    multicast_province(config_file)
-print(f"获取完成")
+        all_ip_ports.extend(scan_ip_port(ip, port, option, url_end))
+    if len(all_ip_ports) != 0:
+        all_ip_ports = sorted(set(all_ip_ports))
+        print(f"\n{province} 扫描完成，获取有效ip_port共：{len(all_ip_ports)}个\n{all_ip_ports}\n")
+        with open(f"ip/{province}_ip.txt", 'w', encoding='utf-8') as f:
+            f.write('\n'.join(all_ip_ports))  # 有效ip_port写入文件
+        if os.path.exists(f"ip/存档_{province}_ip.txt"):
+            with open(f"ip/存档_{province}_ip.txt", 'r', encoding='utf-8') as f:
+                lines = f.readlines()
+                for ip_port in all_ip_ports:
+                    ip, port = ip_port.split(":")
+                    a, b, c, d = ip.split(".")
+                    lines.append(f"{a}.{b}.{c}.1:{port}\n")
+                lines = sorted(set(lines))
+            with open(f"ip/存档_{province}_ip.txt", 'w', encoding='utf-8') as f:
+                f.writelines(lines)
+        template_file = os.path.join('template', f"template_{province}.txt")
+        if os.path.exists(template_file):
+            with open(template_file, 'r', encoding='utf-8') as f:
+                tem_channels = f.read()
+            output = []
+            with open(f"ip/{province}_ip.txt", 'r', encoding='utf-8') as f:
+                for line_num, line in enumerate(f, 1):
+                    ip = line.strip()
+                    output.append(f"{province}-组播{line_num},#genre#\n")
+                    output.append(tem_channels.replace("ipipip", f"{ip}"))
+            with open(f"组播_{province}.txt", 'w', encoding='utf-8') as f:
+                f.writelines(output)
+        else:
+            print(f"缺少模板文件: {template_file}")
+    else:
+        print(f"\n{province} 扫描完成，未扫描到有效ip_port")
+
+
+def txt_to_m3u(input_file, output_file):
+    with open(input_file, 'r', encoding='utf-8') as f:
+        lines = f.readlines()
+    with open(output_file, 'w', encoding='utf-8') as f:
+        genre = ''
+        for line in lines:
+            line = line.strip()
+            if "," in line:
+                channel_name, channel_url = line.split(',', 1)
+                if channel_url == '#genre#':
+                    genre = channel_name
+                else:
+                    f.write(f'#EXTINF:-1 group-title="{genre}",{channel_name}\n')
+                    f.write(f'{channel_url}\n')
+
+
+def main():
+    for config_file in glob.glob(os.path.join('ip', '*_config.txt')):
+        multicast_province(config_file)
+    file_contents = []
+    for file_path in glob.glob('组播_*电信.txt'):
+        with open(file_path, 'r', encoding="utf-8") as f:
+            content = f.read()
+            file_contents.append(content)
+    for file_path in glob.glob('组播_*联通.txt'):
+        with open(file_path, 'r', encoding="utf-8") as f:
+            content = f.read()
+            file_contents.append(content)
+    now = datetime.datetime.now(datetime.UTC) + datetime.timedelta(hours=8)
+    current_time = now.strftime("%Y/%m/%d %H:%M")
+    with open("zubo_all.txt", "w", encoding="utf-8") as f:
+        f.write(f"{current_time}更新,#genre#\n")
+        f.write(f"浙江卫视,http://ali-m-l.cztv.com/channels/lantian/channel001/1080p.m3u8\n")
+        f.write('\n'.join(file_contents))
+    txt_to_m3u("zubo_all.txt", "zubo_all.m3u")
+    print(f"组播地址获取完成")
+
+
+if __name__ == "__main__":
+    main()
