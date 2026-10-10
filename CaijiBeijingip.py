@@ -5,6 +5,15 @@ import glob
 import requests
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+def parse_range(s):
+    # 解析IP段范围，支持 183 或者 183-185
+    s = s.strip()
+    if '-' in s:
+        start, end = s.split('-')
+        return list(range(int(start), int(end)+1))
+    else:
+        return [int(s)]
+
 def read_config(config_file):
     print(f"读取设置文件：{config_file}")
     ip_configs = []
@@ -18,15 +27,20 @@ def read_config(config_file):
                     parts = line.split(',')
                     ip_part, port = parts[0].strip().split(':')
                     url_end = "/stat" if int(parts[1]) == 1 else "/status"
-                    # 判断是否只有第一段（如 183:8001,12）
                     dot_count = ip_part.count('.')
-                    if dot_count == 0:
-                        # 只有第一段，后面三段全部范围1~100
+                    # 四段IP，支持每段带范围 a-b.c-d.e-f.g-h
+                    if dot_count == 3:
+                        segs = ip_part.split('.')
+                        a_seg, b_seg, c_seg, d_seg = segs
+                        ip_configs.append(((a_seg, b_seg, c_seg, d_seg), port, url_end, "range4"))
+                        print(f"第{line_num}行：四段范围扫描 {ip_part}:{port} 添加到扫描列表")
+                    elif dot_count == 0:
+                        # 原有full模式：183:8001,0
                         first_seg = ip_part
                         ip_configs.append((first_seg, port, url_end, "full"))
                         print(f"第{line_num}行：固定第一段{first_seg}，扫描 {first_seg}.1-100.1-100.1-100:{port}  添加到扫描列表")
                     else:
-                        # 原有逻辑：正常ip四段写法
+                        # 原有old模式
                         a, b, c, d = ip_part.split('.')
                         ip = f"{a}.{b}.1.1"
                         ip_configs.append((ip, port, url_end, "old"))
@@ -63,11 +77,22 @@ def scan_ip_port(ip_info, port, url_end, mode):
             for y in range(1, 101):
                 for z in range(1, 101):
                     ip_ports.append(f"{first}.{x}.{y}.{z}:{port}")
+    elif mode == "range4":
+        # 新增：四段自定义范围
+        a_seg,b_seg,c_seg,d_seg = ip_info
+        a_list = parse_range(a_seg)
+        b_list = parse_range(b_seg)
+        c_list = parse_range(c_seg)
+        d_list = parse_range(d_seg)
+        for a in a_list:
+            for b in b_list:
+                for c in c_list:
+                    for d in d_list:
+                        ip_ports.append(f"{a}.{b}.{c}.{d}:{port}")
     else:
         # 旧模式，保留原有逻辑
         a, b, c, d = map(int, ip_info.split('.'))
         ip_ports = [f"{a}.{b}.{x}.{y}:{port}" for x in range(256) for y in range(1,256)]
-
     checked = [0]
     Thread(target=show_progress, daemon=True).start()
     with ThreadPoolExecutor(max_workers=300) as executor:
@@ -91,6 +116,9 @@ def multicast_province(config_file):
     for ip_info, port, url_end, mode in configs:
         if mode == "full":
             print(f"\n开始扫描第一段固定 {ip_info}，范围 {ip_info}.1-100.1-100.1-100:{port}{url_end}")
+        elif mode == "range4":
+            a_seg,b_seg,c_seg,d_seg = ip_info
+            print(f"\n开始扫描四段范围 {a_seg}.{b_seg}.{c_seg}.{d_seg}:{port}{url_end}")
         else:
             print(f"\n开始扫描  http://{ip_info}:{port}{url_end}")
         all_ip_ports.extend(scan_ip_port(ip_info, port, url_end, mode))
