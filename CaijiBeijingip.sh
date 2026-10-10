@@ -18,7 +18,7 @@ fi
 case $city_choice in
     1)
         city="Beijing_dianxin"
-        stream="rtp/239.3.1.241:8000"
+        stream="rtp/226.0.1.85:2001"
         ;;
     0)
         # 逐个处理{ }内每个选项
