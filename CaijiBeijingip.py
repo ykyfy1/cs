@@ -1,4 +1,4 @@
-from threading import Thread
+from threading import Thread, Event
 import os
 import time
 import glob
@@ -23,35 +23,42 @@ def read_config(config_file):
                 line = line.strip()
                 if not line or line.startswith("#"):
                     continue
-                if "," in line:
-                    parts = line.split(',')
-                    ip_part, port = parts[0].strip().split(':')
-                    url_end = "/stat" if int(parts[1]) == 1 else "/status"
-                    dot_count = ip_part.count('.')
-                    # 四段IP，支持每段带范围 a-b.c-d.e-f.g-h
-                    if dot_count == 3:
-                        segs = ip_part.split('.')
-                        a_seg, b_seg, c_seg, d_seg = segs
-                        ip_configs.append(((a_seg, b_seg, c_seg, d_seg), port, url_end, "range4"))
-                        print(f"第{line_num}行：四段范围扫描 {ip_part}:{port} 添加到扫描列表")
-                    elif dot_count == 0:
-                        # 原有full模式：183:8001,0
-                        first_seg = ip_part
-                        ip_configs.append((first_seg, port, url_end, "full"))
-                        print(f"第{line_num}行：固定第一段{first_seg}，扫描 {first_seg}.1-100.1-100.1-100:{port}  添加到扫描列表")
-                    else:
-                        # 原有old模式
-                        a, b, c, d = ip_part.split('.')
-                        ip = f"{a}.{b}.1.1"
-                        ip_configs.append((ip, port, url_end, "old"))
-                        print(f"第{line_num}行：http://{ip}:{port}{url_end} 添加到扫描列表")
+                parts = line.split(',')
+                ip_part, port = parts[0].strip().split(':')
+                url_flag = int(parts[1])
+                url_end = "/stat" if url_flag == 1 else "/status"
+                # 判断是否填写最大有效IP数量
+                max_find = None
+                if len(parts) >=3:
+                    max_find = int(parts[2])
+
+                dot_count = ip_part.count('.')
+                # 四段IP，支持每段带范围 a-b.c-d.e-f.g-h
+                if dot_count == 3:
+                    segs = ip_part.split('.')
+                    a_seg, b_seg, c_seg, d_seg = segs
+                    ip_configs.append(((a_seg, b_seg, c_seg, d_seg), port, url_end, "range4", max_find))
+                    print(f"第{line_num}行：四段范围扫描 {ip_part}:{port}，最多获取{max_find}个有效IP 添加到扫描列表")
+                elif dot_count == 0:
+                    # 原有full模式：183:8001,0
+                    first_seg = ip_part
+                    ip_configs.append((first_seg, port, url_end, "full", max_find))
+                    print(f"第{line_num}行：固定第一段{first_seg}，扫描 {first_seg}.1-100.1-100.1-100:{port}，最多获取{max_find}个有效IP 添加到扫描列表")
+                else:
+                    # 原有old模式
+                    a, b, c, d = ip_part.split('.')
+                    ip = f"{a}.{b}.1.1"
+                    ip_configs.append((ip, port, url_end, "old", max_find))
+                    print(f"第{line_num}行：http://{ip}:{port}{url_end} 添加到扫描列表")
         return ip_configs
     except Exception as e:
         print(f"读取文件错误: {e}")
         return None
 
 # 发送get请求检测url是否可访问
-def check_ip_port(ip_port, url_end):
+def check_ip_port(ip_port, url_end, stop_event):
+    if stop_event.is_set():
+        return None
     try:
         url = f"http://{ip_port}{url_end}"
         resp = requests.get(url, timeout=2)
@@ -63,11 +70,13 @@ def check_ip_port(ip_port, url_end):
         return None
 
 # 多线程检测url，获取有效ip_port
-def scan_ip_port(ip_info, port, url_end, mode):
+def scan_ip_port(ip_info, port, url_end, mode, max_find):
+    stop_event = Event()
     def show_progress():
-        while checked[0] < len(ip_ports):
+        while not stop_event.is_set() and checked[0] < len(ip_ports):
             print(f"已扫描：{checked[0]}/{len(ip_ports)}, 有效ip_port：{len(valid_ip_ports)}个")
             time.sleep(20)
+
     valid_ip_ports = []
     ip_ports = []
     if mode == "full":
@@ -93,14 +102,23 @@ def scan_ip_port(ip_info, port, url_end, mode):
         # 旧模式，保留原有逻辑
         a, b, c, d = map(int, ip_info.split('.'))
         ip_ports = [f"{a}.{b}.{x}.{y}:{port}" for x in range(256) for y in range(1,256)]
+
     checked = [0]
     Thread(target=show_progress, daemon=True).start()
+
     with ThreadPoolExecutor(max_workers=300) as executor:
-        futures = {executor.submit(check_ip_port, ip_port, url_end): ip_port for ip_port in ip_ports}
+        futures = {executor.submit(check_ip_port, ip_port, url_end, stop_event): ip_port for ip_port in ip_ports}
         for future in as_completed(futures):
+            if stop_event.is_set():
+                break
             result = future.result()
             if result:
                 valid_ip_ports.append(result)
+                # 判断是否达到目标数量，停止扫描
+                if max_find is not None and len(valid_ip_ports) >= max_find:
+                    print(f"✅ 已收集到{max_find}个有效IP，停止当前网段扫描")
+                    stop_event.set()
+                    break
             checked[0] += 1
     return valid_ip_ports
 
@@ -113,7 +131,7 @@ def multicast_province(config_file):
         return
     print(f"读取完成，共需扫描 {len(configs)}组")
     all_ip_ports = []
-    for ip_info, port, url_end, mode in configs:
+    for ip_info, port, url_end, mode, max_find in configs:
         if mode == "full":
             print(f"\n开始扫描第一段固定 {ip_info}，范围 {ip_info}.1-100.1-100.1-100:{port}{url_end}")
         elif mode == "range4":
@@ -121,7 +139,7 @@ def multicast_province(config_file):
             print(f"\n开始扫描四段范围 {a_seg}.{b_seg}.{c_seg}.{d_seg}:{port}{url_end}")
         else:
             print(f"\n开始扫描  http://{ip_info}:{port}{url_end}")
-        all_ip_ports.extend(scan_ip_port(ip_info, port, url_end, mode))
+        all_ip_ports.extend(scan_ip_port(ip_info, port, url_end, mode, max_find))
     all_ip_ports = sorted(set(all_ip_ports))
     print(f"\n{province}_{operator} 扫描完成，获取有效ip_port共：{len(all_ip_ports)}个\n{all_ip_ports}\n")
     with open(f"ip/{province}_{operator}_ip.txt", 'w', encoding='utf-8') as f:
