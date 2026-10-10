@@ -1,45 +1,39 @@
-from threading import Thread
+import asyncio
+import aiohttp
 import os
-import time
-import datetime
 import glob
-import requests
-from concurrent.futures import ThreadPoolExecutor, as_completed
+import datetime
 
-# 全局session，防止连接堆积卡死
-session = requests.Session()
-adapter = requests.adapters.HTTPAdapter(pool_connections=10, pool_maxsize=10)
-session.mount('http://', adapter)
+# 全局并发限制
+SEMAPHORE_LIMIT = 200
+TIMEOUT = aiohttp.ClientTimeout(total=1.2)
 
 def read_config(config_file):
     print(f"读取设置文件：{config_file}")
     ip_configs = []
     try:
-        with open(config_file, 'r') as f:
+        with open(config_file, 'r', encoding='utf-8') as f:
             for line_num, line in enumerate(f, 1):
                 line = line.strip()
                 if "," in line and not line.startswith("#") and line:
                     parts = line.split(',')
                     ip_port_raw = parts[0].strip()
                     ip_part, port_str = ip_port_raw.split(':')
-                    # |分割端口列表，【不拆分成多条记录】，直接保存端口列表
                     port_list = [p.strip() for p in port_str.split("|")]
                     option = int(parts[1])
                     url_end = "/status" if option >= 10 else "/stat"
-                    # 一条记录保存ip+端口数组，不再循环append多条
                     ip_configs.append((ip_part, port_list, option, url_end))
                     print(f"第{line_num}行：IP={ip_part}，端口列表={port_list} 添加到扫描任务")
         return ip_configs
     except Exception as e:
         print(f"读取文件错误: {e}")
+        return []
 
 
 def generate_ip_ports(ip, port_list, option):
     if option == 99:
-        # 固定IP模式，返回 [ip:port1, ip:port2, ip:port3...]
         return [f"{ip}:{p}" for p in port_list]
     else:
-        # 原有网段模式逻辑不变
         a, b, c, d = ip.split('.')
         if option == 2 or option == 12:
             c_extent = c.split('-')
@@ -66,48 +60,57 @@ def generate_ip_ports(ip, port_list, option):
             return res
 
 
-# 发送get请求检测url是否为udpxy
-def check_ip_port(ip_port, url_end):
-    try:
-        url = f"http://{ip_port}{url_end}"
-        resp = session.get(url, timeout=(2,2))
-        resp.raise_for_status()
-        if "Multi stream daemon" in resp.text or "udpxy status" in resp.text:
-            print(f"✅ {url} 访问成功")
-            return ip_port
-    except Exception as e:
-        print(f"❌ {ip_port} 失败: {str(e)}")
-        return None
+async def check_ip_port(session, sem, ip_port, url_end):
+    async with sem:
+        try:
+            url = f"http://{ip_port}{url_end}"
+            async with session.get(url, timeout=TIMEOUT) as resp:
+                text = await resp.text()
+                if "Multi stream daemon" in text or "udpxy status" in text:
+                    print(f"✅ {url} 访问成功")
+                    return ip_port
+        except Exception:
+            return None
 
 
-# 批量扫描端口列表，同一个线程池一次性跑全部端口
-def scan_ip_port(ip, port_list, option, url_end):
-    def show_progress():
-        while checked[0] < len(ip_ports):
-            print(f"已扫描：{checked[0]}/{len(ip_ports)}, 有效ip_port：{len(valid_ip_ports)}个")
-            time.sleep(3)
-
+async def scan_ip_port(ip, port_list, option, url_end):
     valid_ip_ports = []
     ip_ports = generate_ip_ports(ip, port_list, option)
-    checked = [0]
-    Thread(target=show_progress, daemon=True).start()
-
+    total = len(ip_ports)
     if option == 99:
-        worker_num = 7
+        print(f"【固定IP模式，串行扫描端口】")
+        for idx, item in enumerate(ip_ports):
+            print(f"\n进度：{idx+1}/{total}，正在扫描 {item}")
+            # 单任务探测
+            connector = aiohttp.TCPConnector(limit=1)
+            async with aiohttp.ClientSession(connector=connector, timeout=TIMEOUT) as session:
+                res = await check_ip_port(session, asyncio.Semaphore(1), item, url_end)
+                if res:
+                    valid_ip_ports.append(res)
+        return valid_ip_ports
     else:
-        worker_num = 300 if option % 2 ==1 else 100
+        # 网段异步并发高速扫描
+        print(f"【网段异步高速扫描，总任务 {total}】")
+        sem = asyncio.Semaphore(SEMAPHORE_LIMIT)
+        connector = aiohttp.TCPConnector(limit=SEMAPHORE_LIMIT, ttl_dns_cache=300)
+        async with aiohttp.ClientSession(connector=connector, timeout=TIMEOUT) as session:
+            tasks = []
+            for item in ip_ports:
+                task = asyncio.create_task(check_ip_port(session, sem, item, url_end))
+                tasks.append(task)
+            # 分批收集结果，实时打印进度
+            done_count = 0
+            for task in asyncio.as_completed(tasks):
+                result = await task
+                done_count += 1
+                if result:
+                    valid_ip_ports.append(result)
+                    print(f"✅ {result}{url_end} 访问成功")
+                print(f"已扫描：{done_count}/{total}, 有效ip_port：{len(valid_ip_ports)}个")
+        return valid_ip_ports
 
-    with ThreadPoolExecutor(max_workers=worker_num) as executor:
-        futures = {executor.submit(check_ip_port, item, url_end): item for item in ip_ports}
-        for future in as_completed(futures):
-            result = future.result()
-            if result:
-                valid_ip_ports.append(result)
-            checked[0] +=1
-    return valid_ip_ports
 
-
-def multicast_province(config_file):
+async def multicast_province(config_file):
     filename = os.path.basename(config_file)
     province = filename.split('_')[0]
     print(f"\n=========================\n   获取: {province} ip_port\n=========================")
@@ -115,8 +118,9 @@ def multicast_province(config_file):
     print(f"读取完成，共需扫描 {len(configs)}组任务")
     all_ip_ports = []
     for ip, port_list, option, url_end in configs:
-        print(f"\n开始批量扫描 IP: {ip}，端口列表：{port_list}")
-        all_ip_ports.extend(scan_ip_port(ip, port_list, option, url_end))
+        print(f"\n开始扫描 IP: {ip}，端口列表：{port_list}")
+        res_list = await scan_ip_port(ip, port_list, option, url_end)
+        all_ip_ports.extend(res_list)
     if len(all_ip_ports) !=0:
         all_ip_ports = sorted(set(all_ip_ports))
         print(f"\n{province} 扫描完成，找到有效udpxy共：{len(all_ip_ports)}个\n{all_ip_ports}")
@@ -166,9 +170,9 @@ def txt_to_m3u(input_file, output_file):
                     f.write(f'{channel_url}\n')
 
 
-def main():
+async def main():
     for config_file in glob.glob(os.path.join('ip', '*_config.txt')):
-        multicast_province(config_file)
+        await multicast_province(config_file)
     file_contents = []
     for file_path in glob.glob('组播_*.txt'):
         with open(file_path, 'r', encoding="utf-8") as f:
@@ -185,4 +189,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
