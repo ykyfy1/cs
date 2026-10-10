@@ -24,7 +24,7 @@ def read_config(config_file):
                         # 只有第一段，后面三段全部范围1~100
                         first_seg = ip_part
                         ip_configs.append((first_seg, port, url_end, "full"))
-                        print(f"第{line_num}行：固定第一段{first_seg}，扫描 {first_seg}.1-100.1-100.1-100:{port}  添加到扫描列表")
+                        print(f"第{line_num}行：固定第一段{first_seg}，扫描 {first_seg}.100-200.100-200.100-200:{port}  添加到扫描列表")
                     else:
                         # 原有逻辑：正常ip四段写法
                         a, b, c, d = ip_part.split('.')
