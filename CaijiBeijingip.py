@@ -6,6 +6,10 @@ import glob
 import requests
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+# 全局session，防止连接堆积卡死
+session = requests.Session()
+adapter = requests.adapters.HTTPAdapter(pool_connections=10, pool_maxsize=10)
+session.mount('http://', adapter)
 
 def read_config(config_file):
     print(f"读取设置文件：{config_file}")
@@ -65,23 +69,24 @@ def generate_ip_ports(ip, port, option):
 def check_ip_port(ip_port, url_end):
     try:
         url = f"http://{ip_port}{url_end}"
-        resp = requests.get(url, timeout=2)
+        # timeout=(连接超时,读取超时)，防止卡死
+        resp = session.get(url, timeout=(2,2))
         resp.raise_for_status()
         if "Multi stream daemon" in resp.text or "udpxy status" in resp.text:
-            print(f"{url} 访问成功")
+            print(f"✅ {url} 访问成功")
             return ip_port
     except Exception as e:
-        # 调试用，可注释，github环境可以看到失败原因
-        # print(f"{ip_port} 访问失败: {str(e)}")
+        print(f"❌ {ip_port} 失败: {str(e)}")
         return None
 
 
 # 多线程检测url，获取有效ip_port
 def scan_ip_port(ip, port, option, url_end):
     def show_progress():
+        # 修复：去掉option判断，固定IP模式也持续打印进度
         while checked[0] < len(ip_ports):
             print(f"已扫描：{checked[0]}/{len(ip_ports)}, 有效ip_port：{len(valid_ip_ports)}个")
-            time.sleep(30)
+            time.sleep(3) # 缩短到3秒，方便看进度，调试完可以改回30
 
     valid_ip_ports = []
     ip_ports = generate_ip_ports(ip, port, option)
@@ -90,7 +95,7 @@ def scan_ip_port(ip, port, option, url_end):
 
     # 固定IP模式降低并发，避免线程过多浪费资源
     if option == 99:
-        worker_num = 10
+        worker_num = 7
     else:
         worker_num = 300 if option % 2 == 1 else 100
 
@@ -101,6 +106,7 @@ def scan_ip_port(ip, port, option, url_end):
             if result:
                 valid_ip_ports.append(result)
             checked[0] += 1
+            print(f"【完成一个】checked={checked[0]}")
     return valid_ip_ports
 
 
