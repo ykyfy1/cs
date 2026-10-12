@@ -33,15 +33,16 @@ def read_config(config_file):
                 line = line.strip()
                 if not line or line.startswith("#"):
                     continue
-                parts = line.split(',')
-                ip_port_part = parts[0].strip()
-                url_flag = int(parts[1])
+                # 只拆分第一个冒号，区分【IP表达式】和【端口+参数】
+                ip_expr, rest = line.split(':', 1)
+                # rest 样例：4022|8888|8188,0,10
+                rest_parts = rest.split(',')
+                port_str = rest_parts[0].strip()
+                url_flag = int(rest_parts[1])
                 url_end = "/stat" if url_flag == 1 else "/status"
-                max_find = int(parts[2]) if len(parts) >= 3 else None
-                if ':' not in ip_port_part:
-                    print(f"第{line_num}行格式错误，缺少端口分隔符: {line}")
-                    continue
-                ip_part, port_str = ip_port_part.split(':', 1)
+                max_find = int(rest_parts[2]) if len(rest_parts) >= 3 else None
+
+                ip_part = ip_expr
                 ports = [p.strip() for p in port_str.split('|') if p.strip()]
                 if not ports:
                     print(f"第{line_num}行未识别到有效端口: {line}")
@@ -60,7 +61,7 @@ def read_config(config_file):
                             (first_seg, port, url_end, "full", max_find)
                         )
                     else:
-                        a, b, c, d = ip_part.split('.')
+                        a, b, c, d = map(int, ip_part.split('.'))
                         ip = f"{a}.{b}.1.1"
                         ip_configs.append(
                             (ip, port, url_end, "old", max_find)
@@ -156,14 +157,12 @@ def multicast_province(config_file):
         else:
             print(f"\n开始扫描  http://{ip_info}:{port}{url_end}")
         all_ip_ports.extend(scan_ip_port(ip_info, port, url_end, mode, max_find))
-
     # ====== 排序逻辑更新：同IP不同端口全部保留，只剔除完全重复的【IP:端口】 ======
     def sort_key(ip_port_str):
         ip_addr, port_num = ip_port_str.split(":")
         nums = list(map(int, ip_addr.split(".")))
         # 先按IP四段数字排序，IP相同再按端口数字从小到大
         return (*nums, int(port_num))
-
     # 有序去重：只有完全一模一样的ip:port才删除，同IP不同端口全部保留
     seen = set()
     unique_list = []
@@ -171,10 +170,8 @@ def multicast_province(config_file):
         if item not in seen:
             seen.add(item)
             unique_list.append(item)
-
     all_ip_ports = sorted(unique_list, key=sort_key)
     # ====== 排序逻辑结束 ======
-
     print(f"\n{province}_{operator} 扫描完成，获取有效ip_port共：{len(all_ip_ports)}个\n{all_ip_ports}\n")
     with open(f"ip/{province}_{operator}_ip.txt", 'w', encoding='utf-8') as f:
         f.write('\n'.join(all_ip_ports) + '\n')
@@ -191,7 +188,6 @@ def multicast_province(config_file):
         f.write(f"{province}_{operator}-组播,#genre#\n")
         for channel in output:
             f.write(channel)
-
 
 for config_file in glob.glob(os.path.join('ip', '*_config.txt')):
     multicast_province(config_file)
