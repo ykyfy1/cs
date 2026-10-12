@@ -76,12 +76,14 @@ def check_ip_port(ip_port, url_end, stop_event):
         return None
     try:
         url = f"http://{ip_port}{url_end}"
-        resp = requests.get(url, timeout=2)
+        resp = requests.get(url, timeout=3)
         resp.raise_for_status()
         if "Multi stream daemon" in resp.text or "udpxy status" in resp.text:
-            print(f"{url} 访问成功")
+            print(f"✅ {url} 访问成功")
             return ip_port
-    except Exception:
+    except Exception as e:
+        # 调试打印，小网段测试启用，大范围扫描记得注释下面这行，防止日志刷屏
+        print(f"❌ {url} 失败: {str(e)[:70]}")
         return None
 
 def scan_ip_port(ip_info, port, url_end, mode, max_find):
@@ -119,7 +121,8 @@ def scan_ip_port(ip_info, port, url_end, mode, max_find):
     checked = [0]
     Thread(target=show_progress, daemon=True).start()
 
-    with ThreadPoolExecutor(max_workers=300) as executor:
+    # 并发改成10，GitHub Action专用
+    with ThreadPoolExecutor(max_workers=10) as executor:
         futures = {
             executor.submit(check_ip_port, ip_port, url_end, stop_event): ip_port
             for ip_port in ip_ports
