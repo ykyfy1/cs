@@ -92,51 +92,80 @@ def check_ip_port(ip_port, url_end, stop_event):
 
 def scan_ip_port(ip_info, port, url_end, mode, max_find):
     stop_event = Event()
-    def show_progress():
-        while not stop_event.is_set() and checked[0] < len(ip_ports):
-            print(f"已扫描：{checked[0]}/{len(ip_ports)}, 有效ip_port：{len(valid_ip_ports)}个")
-            time.sleep(20)
     valid_ip_ports = []
-    ip_ports = []
-    if mode == "full":
-        first = ip_info
-        for x in range(1, 101):
-            for y in range(1, 101):
-                for z in range(1, 101):
-                    ip_ports.append(f"{first}.{x}.{y}.{z}:{port}")
-    elif mode == "range4":
-        a_seg, b_seg, c_seg, d_seg = ip_info
-        a_list = parse_range(a_seg)
-        b_list = parse_range(b_seg)
-        c_list = parse_range(c_seg)
-        d_list = parse_range(d_seg)
-        for a in a_list:
-            for b in b_list:
-                for c in c_list:
-                    for d in d_list:
-                        ip_ports.append(f"{a}.{b}.{c}.{d}:{port}")
-    else:
-        a, b, c, d = map(int, ip_info.split('.'))
-        ip_ports = [f"{a}.{b}.{x}.{y}:{port}" for x in range(256) for y in range(1, 256)]
-    checked = [0]
-    Thread(target=show_progress, daemon=True).start()
-    # 并发改成10，GitHub Action专用
+    total_count = 0
+
+    # 生成器：懒加载，不一次性全部生成IP
+    def ip_generator():
+        nonlocal total_count
+        if mode == "full":
+            first = ip_info
+            for x in range(1, 101):
+                for y in range(1, 101):
+                    for z in range(1, 101):
+                        total_count += 1
+                        yield f"{first}.{x}.{y}.{z}:{port}"
+        elif mode == "range4":
+            a_seg, b_seg, c_seg, d_seg = ip_info
+            a_list = parse_range(a_seg)
+            b_list = parse_range(b_seg)
+            c_list = parse_range(c_seg)
+            d_list = parse_range(d_seg)
+            for a in a_list:
+                for b in b_list:
+                    for c in c_list:
+                        for d in d_list:
+                            total_count += 1
+                            yield f"{a}.{b}.{c}.{d}:{port}"
+        else:
+            a, b, c, d = map(int, ip_info.split('.'))
+            for x in range(256):
+                for y in range(1, 256):
+                    total_count += 1
+                    yield f"{a}.{b}.{x}.{y}:{port}"
+
+    # 进度打印线程
+    def show_progress():
+        scanned = 0
+        while not stop_event.is_set():
+            print(f"已扫描：{scanned}/{total_count}, 有效ip_port：{len(valid_ip_ports)}个")
+            time.sleep(20)
+    progress_thread = Thread(target=show_progress, daemon=True)
+    progress_thread.start()
+
+    # 线程池，动态提交任务，不再一次性预创建全部futures
     with ThreadPoolExecutor(max_workers=10) as executor:
-        futures = {
-            executor.submit(check_ip_port, ip_port, url_end, stop_event): ip_port
-            for ip_port in ip_ports
-        }
-        for future in as_completed(futures):
+        futures = set()
+        gen = ip_generator()
+        scanned = 0
+        # 循环从生成器取IP，控制并发数量
+        while True:
+            # 当任务少于10个，就新增任务
+            while len(futures) < 10 and not stop_event.is_set():
+                try:
+                    ip = next(gen)
+                    fut = executor.submit(check_ip_port, ip, url_end, stop_event)
+                    futures.add(fut)
+                except StopIteration:
+                    # IP生成完毕
+                    break
+            if not futures:
+                break
+            # 等待任意一个任务完成
+            done, futures = as_completed(futures, timeout=1), set()
+            for future in done:
+                scanned +=1
+                res = future.result()
+                if res:
+                    valid_ip_ports.append(res)
+                    # 达到数量就停止
+                    if max_find is not None and len(valid_ip_ports) >= max_find:
+                        print(f"✅ 已收集到{max_find}个有效IP，停止当前网段扫描")
+                        stop_event.set()
+                        break
             if stop_event.is_set():
                 break
-            result = future.result()
-            if result:
-                valid_ip_ports.append(result)
-                if max_find is not None and len(valid_ip_ports) >= max_find:
-                    print(f"✅ 已收集到{max_find}个有效IP，停止当前网段扫描")
-                    stop_event.set()
-                    break
-            checked[0] += 1
+    print(f"本网段扫描结束，总共扫描{scanned}个IP，存活{len(valid_ip_ports)}个")
     return valid_ip_ports
 
 def multicast_province(config_file):
