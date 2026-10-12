@@ -6,11 +6,10 @@ import requests
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 def parse_range(s):
-    # 解析IP段范围，支持 183 或者 183-185
     s = s.strip()
     if '-' in s:
         start, end = s.split('-')
-        return list(range(int(start), int(end)+1))
+        return list(range(int(start), int(end) + 1))
     else:
         return [int(s)]
 
@@ -23,39 +22,55 @@ def read_config(config_file):
                 line = line.strip()
                 if not line or line.startswith("#"):
                     continue
+
                 parts = line.split(',')
-                ip_part, port = parts[0].strip().split(':')
+                ip_port_part = parts[0].strip()
                 url_flag = int(parts[1])
                 url_end = "/stat" if url_flag == 1 else "/status"
-                # 判断是否填写最大有效IP数量
-                max_find = None
-                if len(parts) >=3:
-                    max_find = int(parts[2])
+                max_find = int(parts[2]) if len(parts) >= 3 else None
+
+                if ':' not in ip_port_part:
+                    print(f"第{line_num}行格式错误，缺少端口分隔符: {line}")
+                    continue
+
+                ip_part, port_str = ip_port_part.split(':', 1)
+                ports = [p.strip() for p in port_str.split('|') if p.strip()]
+
+                if not ports:
+                    print(f"第{line_num}行未识别到有效端口: {line}")
+                    continue
 
                 dot_count = ip_part.count('.')
-                # 四段IP，支持每段带范围 a-b.c-d.e-f.g-h
-                if dot_count == 3:
-                    segs = ip_part.split('.')
-                    a_seg, b_seg, c_seg, d_seg = segs
-                    ip_configs.append(((a_seg, b_seg, c_seg, d_seg), port, url_end, "range4", max_find))
-                    print(f"第{line_num}行：四段范围扫描 {ip_part}:{port}，最多获取{max_find}个有效IP 添加到扫描列表")
-                elif dot_count == 0:
-                    # 原有full模式：183:8001,0
-                    first_seg = ip_part
-                    ip_configs.append((first_seg, port, url_end, "full", max_find))
-                    print(f"第{line_num}行：固定第一段{first_seg}，扫描 {first_seg}.1-100.1-100.1-100:{port}，最多获取{max_find}个有效IP 添加到扫描列表")
-                else:
-                    # 原有old模式
-                    a, b, c, d = ip_part.split('.')
-                    ip = f"{a}.{b}.1.1"
-                    ip_configs.append((ip, port, url_end, "old", max_find))
-                    print(f"第{line_num}行：http://{ip}:{port}{url_end} 添加到扫描列表")
+
+                for port in ports:
+                    if dot_count == 3:
+                        segs = ip_part.split('.')
+                        a_seg, b_seg, c_seg, d_seg = segs
+                        ip_configs.append(
+                            ((a_seg, b_seg, c_seg, d_seg), port, url_end, "range4", max_find)
+                        )
+                    elif dot_count == 0:
+                        first_seg = ip_part
+                        ip_configs.append(
+                            (first_seg, port, url_end, "full", max_find)
+                        )
+                    else:
+                        a, b, c, d = ip_part.split('.')
+                        ip = f"{a}.{b}.1.1"
+                        ip_configs.append(
+                            (ip, port, url_end, "old", max_find)
+                        )
+
+                print(
+                    f"第{line_num}行：{ip_part} 端口 {port_str}，"
+                    f"模式={url_flag}({url_end})，最多获取 {max_find} 个"
+                )
+
         return ip_configs
     except Exception as e:
         print(f"读取文件错误: {e}")
         return None
 
-# 发送get请求检测url是否可访问
 def check_ip_port(ip_port, url_end, stop_event):
     if stop_event.is_set():
         return None
@@ -69,9 +84,9 @@ def check_ip_port(ip_port, url_end, stop_event):
     except Exception:
         return None
 
-# 多线程检测url，获取有效ip_port
 def scan_ip_port(ip_info, port, url_end, mode, max_find):
     stop_event = Event()
+
     def show_progress():
         while not stop_event.is_set() and checked[0] < len(ip_ports):
             print(f"已扫描：{checked[0]}/{len(ip_ports)}, 有效ip_port：{len(valid_ip_ports)}个")
@@ -79,16 +94,15 @@ def scan_ip_port(ip_info, port, url_end, mode, max_find):
 
     valid_ip_ports = []
     ip_ports = []
+
     if mode == "full":
-        # 新模式：固定第一段ip_info，第2、3、4段 1~100
         first = ip_info
         for x in range(1, 101):
             for y in range(1, 101):
                 for z in range(1, 101):
                     ip_ports.append(f"{first}.{x}.{y}.{z}:{port}")
     elif mode == "range4":
-        # 新增：四段自定义范围
-        a_seg,b_seg,c_seg,d_seg = ip_info
+        a_seg, b_seg, c_seg, d_seg = ip_info
         a_list = parse_range(a_seg)
         b_list = parse_range(b_seg)
         c_list = parse_range(c_seg)
@@ -99,60 +113,75 @@ def scan_ip_port(ip_info, port, url_end, mode, max_find):
                     for d in d_list:
                         ip_ports.append(f"{a}.{b}.{c}.{d}:{port}")
     else:
-        # 旧模式，保留原有逻辑
         a, b, c, d = map(int, ip_info.split('.'))
-        ip_ports = [f"{a}.{b}.{x}.{y}:{port}" for x in range(256) for y in range(1,256)]
+        ip_ports = [f"{a}.{b}.{x}.{y}:{port}" for x in range(256) for y in range(1, 256)]
 
     checked = [0]
     Thread(target=show_progress, daemon=True).start()
 
     with ThreadPoolExecutor(max_workers=300) as executor:
-        futures = {executor.submit(check_ip_port, ip_port, url_end, stop_event): ip_port for ip_port in ip_ports}
+        futures = {
+            executor.submit(check_ip_port, ip_port, url_end, stop_event): ip_port
+            for ip_port in ip_ports
+        }
+
         for future in as_completed(futures):
             if stop_event.is_set():
                 break
+
             result = future.result()
             if result:
                 valid_ip_ports.append(result)
-                # 判断是否达到目标数量，停止扫描
                 if max_find is not None and len(valid_ip_ports) >= max_find:
                     print(f"✅ 已收集到{max_find}个有效IP，停止当前网段扫描")
                     stop_event.set()
                     break
+
             checked[0] += 1
+
     return valid_ip_ports
 
 def multicast_province(config_file):
     filename = os.path.basename(config_file)
     province, operator = filename.split('_')[:2]
-    print(f"{'='*25}\n   获取: {province}_{operator}ip_port\n{'='*25}")
+    print(f"{'=' * 25}\n   获取: {province}_{operator}ip_port\n{'=' * 25}")
+
     configs = read_config(config_file)
     if not configs:
         return
+
     print(f"读取完成，共需扫描 {len(configs)}组")
     all_ip_ports = []
+
     for ip_info, port, url_end, mode, max_find in configs:
         if mode == "full":
             print(f"\n开始扫描第一段固定 {ip_info}，范围 {ip_info}.1-100.1-100.1-100:{port}{url_end}")
         elif mode == "range4":
-            a_seg,b_seg,c_seg,d_seg = ip_info
+            a_seg, b_seg, c_seg, d_seg = ip_info
             print(f"\n开始扫描四段范围 {a_seg}.{b_seg}.{c_seg}.{d_seg}:{port}{url_end}")
         else:
             print(f"\n开始扫描  http://{ip_info}:{port}{url_end}")
+
         all_ip_ports.extend(scan_ip_port(ip_info, port, url_end, mode, max_find))
+
     all_ip_ports = sorted(set(all_ip_ports))
     print(f"\n{province}_{operator} 扫描完成，获取有效ip_port共：{len(all_ip_ports)}个\n{all_ip_ports}\n")
+
     with open(f"ip/{province}_{operator}_ip.txt", 'w', encoding='utf-8') as f:
-        f.write('\n'.join(all_ip_ports) + '\n')    #有效ip_port写入文件
+        f.write('\n'.join(all_ip_ports) + '\n')
+
     template_file = os.path.join('template', f"template_{province}_{operator}.txt")
     if not os.path.exists(template_file):
         print(f"缺少模板文件: {template_file}")
         return
+
     with open(template_file, 'r', encoding='utf-8') as f:
         channels = f.readlines()
+
     output = []
     for ip in all_ip_ports:
         output.extend([channel.replace("ipipip", f"{ip}") for channel in channels])
+
     with open(f"组播_{province}_{operator}.txt", 'w', encoding='utf-8') as f:
         f.write(f"{province}_{operator}-组播,#genre#\n")
         for channel in output:
@@ -160,4 +189,5 @@ def multicast_province(config_file):
 
 for config_file in glob.glob(os.path.join('ip', '*_config.txt')):
     multicast_province(config_file)
-print(f"获取完成")
+
+print("获取完成")
