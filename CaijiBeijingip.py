@@ -74,8 +74,8 @@ def check_ip_port(ip_port, url_end, stop_event):
             print(f"✅ {url} 访问成功")
             return ip_port
     except Exception as e:
-        # 调试打印，小网段测试启用，大范围扫描记得注释下面这行，防止日志刷屏
-        print(f"❌ {url} 失败: {str(e)[:70]}")
+        # 调试打印，大范围扫描注释掉，防止日志刷屏
+        # print(f"❌ {url} 失败: {str(e)[:70]}")
         return None
 
 def scan_ip_port(ip_info, port, url_end, mode, max_find):
