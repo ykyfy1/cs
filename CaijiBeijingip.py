@@ -3,6 +3,9 @@ import glob
 import asyncio
 import aiohttp
 import socket
+import time
+import json
+import csv
 
 def parse_range(s):
     """支持 单值、171-183连续范围、171,183逗号多选"""
@@ -34,7 +37,7 @@ def read_config(config_file):
                     continue
                 # 只拆分第一个冒号，区分【IP表达式】和【端口+参数】
                 ip_expr, rest = line.split(':', 1)
-                # rest 样例：4022|8888|8188,0,10
+                # rest样例：4022|8888|8188,0,10
                 rest_parts = rest.split(',')
                 port_str = rest_parts[0].strip()
                 url_flag = int(rest_parts[1])
@@ -68,10 +71,10 @@ def read_config(config_file):
                     f"第{line_num}：{ip_part} 端口 {port_str}，"
                     f"模式={url_flag}({url_end})，最多获取 {max_find if max_find else '不限'} 个"
                 )
-        return ip_configs
     except Exception as e:
         print(f"读取文件错误: {e}")
         return None
+    return ip_configs
 
 async def tcp_check(ip, port, timeout=1):
     """异步TCP端口预检"""
@@ -82,6 +85,24 @@ async def tcp_check(ip, port, timeout=1):
         return True
     except Exception:
         return False
+
+def parse_udpxy_status(html_text):
+    """解析udpxy status页面，提取信息"""
+    info = {
+        "version": "",
+        "max_client": "",
+        "current_conn": ""
+    }
+    lines = html_text.splitlines()
+    for line in lines:
+        line = line.strip()
+        if "udpxy" in line.lower():
+            info["version"] = line
+        if "Max clients" in line:
+            info["max_client"] = line.split(":")[-1].strip()
+        if "Current clients" in line:
+            info["current_conn"] = line.split(":")[-1].strip()
+    return info
 
 async def check_udpxy(ip_port, url_end):
     ip, port = ip_port.split(":")
@@ -95,8 +116,16 @@ async def check_udpxy(ip_port, url_end):
                 if resp.status == 200:
                     text = await resp.text()
                     if "Multi stream daemon" in text or "udpxy status" in text:
-                        print(f"✅ {url} 访问成功")
-                        return ip_port
+                        status_info = parse_udpxy_status(text)
+                        print(f"✅ {url} | 版本:{status_info['version']} | 最大客户端:{status_info['max_client']} | 当前连接:{status_info['current_conn']}")
+                        return {
+                            "ip_port": ip_port,
+                            "ip": ip,
+                            "port": port,
+                            "version": status_info["version"],
+                            "max_client": status_info["max_client"],
+                            "current_conn": status_info["current_conn"]
+                        }
     except Exception:
         pass
     return None
@@ -148,7 +177,9 @@ async def scan_ip_port(ip_info, port, url_end, mode, max_find, semaphore):
     total_task = count_total_tasks(ip_info, port, mode)
     task_generator = gen_ip_task(ip_info, port, mode)
     stop_flag = False
-    print_interval = 50  # 每扫描50条打印一次进度，控制日志行数，适配Github Action
+    print_interval = 50
+    bar_length = 20
+    start_time = time.time() # 用于计算扫描速度
 
     async def task_wrapper(ip_port):
         nonlocal checked, stop_flag
@@ -156,32 +187,35 @@ async def scan_ip_port(ip_info, port, url_end, mode, max_find, semaphore):
             return
         res = await check_udpxy(ip_port, url_end)
         checked += 1
-        # 间隔打印进度，不再刷屏
+        # 进度输出：增加扫描速度
         if checked % print_interval == 0:
             pct = (checked / total_task)*100
-            print(f"📊 进度：{checked}/{total_task} | {pct:.2f}% | 存活：{len(valid_ip_ports)}")
+            filled = int(bar_length * checked // total_task)
+            bar = '=' * filled + '-' * (bar_length - filled)
+            cost = time.time() - start_time
+            speed = round(checked / cost, 2)
+            print(f"📊 进度：{checked}/{total_task} | {pct:.2f}% | 存活：{len(valid_ip_ports)} | [{bar}] | 速度：{speed}个/秒")
         if res:
             valid_ip_ports.append(res)
             if max_find is not None and len(valid_ip_ports) >= max_find:
                 print(f"\n✅ 已收集到{max_find}个有效IP，停止当前网段扫描")
                 stop_flag = True
 
-    # 修复核心：逐个迭代生成任务，受信号量控制，不会一次性创建全部task
+    # 限流提交任务
     tasks = set()
     for ip_port in task_generator:
         if stop_flag:
             break
-        # 等待有空位
         if len(tasks) >= semaphore._value:
             done, tasks = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
             for f in done:
                 await f
-        # 新建任务
         t = asyncio.create_task(task_wrapper(ip_port))
         tasks.add(t)
-    # 等待剩余任务完成
     await asyncio.wait(tasks)
-    print(f"\n本段扫描结束，总共检测 {checked} 个，有效数量：{len(valid_ip_ports)}")
+    total_cost = time.time() - start_time
+    avg_speed = round(checked / total_cost,2)
+    print(f"\n本段扫描结束，总共检测 {checked} 个，有效数量：{len(valid_ip_ports)}，平均速度 {avg_speed}个/秒")
     return valid_ip_ports
 
 def multicast_province(config_file):
@@ -192,9 +226,8 @@ def multicast_province(config_file):
     if not configs:
         return
     print(f"读取完成，共需扫描 {len(configs)}组")
-    all_ip_ports = []
-    # GitHub Action 并发固定10，不要调大！Action公网网络很弱
-    sem_num = 10
+    all_result = []
+    sem_num = 10 # Github Action并发固定10，不要调大
     for ip_info, port, url_end, mode, max_find in configs:
         if mode == "full":
             print(f"\n开始扫描第一段固定 {ip_info}，范围 {ip_info}.1-100.1-100.1-100:{port}{url_end}")
@@ -203,42 +236,58 @@ def multicast_province(config_file):
             print(f"\n开始扫描四段范围 {a_seg}.{b_seg}.{c_seg}.{d_seg}:{port}{url_end}")
         else:
             print(f"\n开始扫描  http://{ip_info}:{port}{url_end}")
-        # 执行异步扫描
         result = asyncio.run(scan_ip_port(ip_info, port, url_end, mode, max_find, asyncio.Semaphore(sem_num)))
-        all_ip_ports.extend(result)
+        all_result.extend(result)
 
-    # ====== 排序逻辑：同IP不同端口全部保留，只剔除完全重复IP:port ======
-    def sort_key(ip_port_str):
-        ip_addr, port_num = ip_port_str.split(":")
-        nums = list(map(int, ip_addr.split(".")))
-        return (*nums, int(port_num))
-    seen = set()
-    unique_list = []
-    for item in all_ip_ports:
-        if item not in seen:
-            seen.add(item)
-            unique_list.append(item)
-    all_ip_ports = sorted(unique_list, key=sort_key)
-    # ====== 排序结束 ======
-    print(f"\n{province}_{operator} 扫描完成，获取有效ip_port共：{len(all_ip_ports)}个\n")
+    # ==========【新增排序逻辑】==========
+    # 优先 max_client 数字降序，max_client相同按IP升序，IP相同按端口升序
+    def sort_key(item):
+        try:
+            # 把max_client转为数字，空值/非数字当做0排最后
+            max_c = int(item["max_client"])
+        except ValueError:
+            max_c = 0
+        ip_nums = list(map(int, item["ip"].split(".")))
+        port_num = int(item["port"])
+        return (-max_c, *ip_nums, port_num)
+
+    all_result = sorted(all_result, key=sort_key)
+
+    # 输出多种格式结果
     os.makedirs("ip", exist_ok=True)
+    # 1. 简单txt（只保留ip:port）
     with open(f"ip/{province}_{operator}_ip.txt", 'w', encoding='utf-8') as f:
-        f.write('\n'.join(all_ip_ports) + '\n')
+        for item in all_result:
+            f.write(f"{item['ip_port']}\n")
+    # 2. csv表格，Excel打开
+    csv_path = f"ip/{province}_{operator}_result.csv"
+    with open(csv_path, 'w', encoding='utf-8-sig', newline='') as f:
+        writer = csv.DictWriter(f, fieldnames=["ip_port","ip","port","version","max_client","current_conn"])
+        writer.writeheader()
+        writer.writerows(all_result)
+    # 3. json结构化
+    json_path = f"ip/{province}_{operator}_result.json"
+    with open(json_path, 'w', encoding='utf-8') as f:
+        json.dump(all_result, f, ensure_ascii=False, indent=2)
+    # 4. 原有组播txt
     template_file = os.path.join('template', f"template_{province}_{operator}.txt")
-    if not os.path.exists(template_file):
-        print(f"缺少模板文件: {template_file}")
-        return
-    with open(template_file, 'r', encoding='utf-8') as f:
-        channels = f.readlines()
-    output = []
-    for ip in all_ip_ports:
-        output.extend([channel.replace("ipipip", f"{ip}") for channel in channels])
-    with open(f"组播_{province}_{operator}.txt", 'w', encoding='utf-8') as f:
-        f.write(f"{province}_{operator}-组播,#genre#\n")
-        for channel in output:
-            f.write(channel)
+    if os.path.exists(template_file):
+        with open(template_file, 'r', encoding='utf-8') as f:
+            template_content = f.read()
+        output = []
+        for item in all_result:
+            output.append(template_content.replace("ipipip", f"{item['ip_port']}"))
+        with open(f"组播_{province}_{operator}.txt", 'w', encoding='utf-8') as f:
+            f.write('\n'.join(output))
+
+    print(f"\n{province}_{operator} 扫描完成，获取有效udpxy共：{len(all_result)}个")
+    print(f"输出文件：")
+    print(f" -> ip列表txt：ip/{province}_{operator}_ip.txt")
+    print(f" -> 表格csv：{csv_path}")
+    print(f" -> json详情：{json_path}")
+    print(f" -> IPTV组播文件：组播_{province}_{operator}.txt")
 
 if __name__ == "__main__":
     for config_file in glob.glob(os.path.join('ip', '*_config.txt')):
         multicast_province(config_file)
-    print("✅ 全部获取完成")
+    print("✅ 全部扫描任务完成")
