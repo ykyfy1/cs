@@ -148,6 +148,7 @@ async def scan_ip_port(ip_info, port, url_end, mode, max_find, semaphore):
     total_task = count_total_tasks(ip_info, port, mode)
     task_generator = gen_ip_task(ip_info, port, mode)
     stop_flag = False
+    print_interval = 50  # 每扫描50条打印一次进度，控制日志行数，适配Github Action
 
     async def task_wrapper(ip_port):
         nonlocal checked, stop_flag
@@ -155,23 +156,32 @@ async def scan_ip_port(ip_info, port, url_end, mode, max_find, semaphore):
             return
         res = await check_udpxy(ip_port, url_end)
         checked += 1
-        pct = (checked / total_task)*100
-        print(f"\r📊 进度：{checked}/{total_task} | {pct:.2f}% | 存活：{len(valid_ip_ports)}", end="")
+        # 间隔打印进度，不再刷屏
+        if checked % print_interval == 0:
+            pct = (checked / total_task)*100
+            print(f"📊 进度：{checked}/{total_task} | {pct:.2f}% | 存活：{len(valid_ip_ports)}")
         if res:
             valid_ip_ports.append(res)
             if max_find is not None and len(valid_ip_ports) >= max_find:
                 print(f"\n✅ 已收集到{max_find}个有效IP，停止当前网段扫描")
                 stop_flag = True
 
-    tasks = []
+    # 修复核心：逐个迭代生成任务，受信号量控制，不会一次性创建全部task
+    tasks = set()
     for ip_port in task_generator:
         if stop_flag:
             break
-        async with semaphore:
-            t = asyncio.create_task(task_wrapper(ip_port))
-            tasks.append(t)
-    await asyncio.gather(*tasks, return_exceptions=True)
-    print("\n本段扫描结束")
+        # 等待有空位
+        if len(tasks) >= semaphore._value:
+            done, tasks = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+            for f in done:
+                await f
+        # 新建任务
+        t = asyncio.create_task(task_wrapper(ip_port))
+        tasks.add(t)
+    # 等待剩余任务完成
+    await asyncio.wait(tasks)
+    print(f"\n本段扫描结束，总共检测 {checked} 个，有效数量：{len(valid_ip_ports)}")
     return valid_ip_ports
 
 def multicast_province(config_file):
@@ -183,8 +193,8 @@ def multicast_province(config_file):
         return
     print(f"读取完成，共需扫描 {len(configs)}组")
     all_ip_ports = []
-    # GitHub Action 并发限制，建议 10~20；本地可以调到30
-    sem = asyncio.Semaphore(10)
+    # GitHub Action 并发固定10，不要调大！Action公网网络很弱
+    sem_num = 10
     for ip_info, port, url_end, mode, max_find in configs:
         if mode == "full":
             print(f"\n开始扫描第一段固定 {ip_info}，范围 {ip_info}.1-100.1-100.1-100:{port}{url_end}")
@@ -194,7 +204,7 @@ def multicast_province(config_file):
         else:
             print(f"\n开始扫描  http://{ip_info}:{port}{url_end}")
         # 执行异步扫描
-        result = asyncio.run(scan_ip_port(ip_info, port, url_end, mode, max_find, sem))
+        result = asyncio.run(scan_ip_port(ip_info, port, url_end, mode, max_find, asyncio.Semaphore(sem_num)))
         all_ip_ports.extend(result)
 
     # ====== 排序逻辑：同IP不同端口全部保留，只剔除完全重复IP:port ======
