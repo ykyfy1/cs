@@ -177,6 +177,7 @@ async def scan_ip_port(ip_info, port, url_end, mode, max_find, semaphore):
     stop_flag = False
     bar_length = 20
     start_time = time.time()
+
     async def task_wrapper(ip_port):
         nonlocal checked, stop_flag
         if stop_flag:
@@ -195,18 +196,18 @@ async def scan_ip_port(ip_info, port, url_end, mode, max_find, semaphore):
             if max_find is not None and len(valid_ip_ports) >= max_find:
                 print(f"\n✅ 已收集到{max_find}个有效IP，停止当前网段扫描")
                 stop_flag = True
-    tasks = set()
+
+    tasks = []
     for ip_port in task_generator:
         if stop_flag:
             break
-        # 信号量限流
+        # 使用信号量限制并发，不再每循环await wait
         async with semaphore:
             t = asyncio.create_task(task_wrapper(ip_port))
-            tasks.add(t)
-            # 清理完成任务
-            done, tasks = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
-    # 等待剩余任务结束
-    await asyncio.wait(tasks)
+            tasks.append(t)
+    # 等待全部任务完成
+    await asyncio.gather(*tasks)
+
     total_cost = time.time() - start_time
     avg_speed = round(checked / total_cost,2)
     print(f"\n本段扫描结束，总共检测 {checked} 个，有效数量：{len(valid_ip_ports)}，平均速度 {avg_speed}个/秒")
