@@ -2,16 +2,17 @@ import os
 import glob
 import asyncio
 import aiohttp
-import socket
 import time
 import json
 import csv
+
 # ===================== 可配置参数 =====================
 SEMAPHORE_NUM = 20      # GitHub Action建议15~30；本地电脑可50~100
-TCP_TIMEOUT = 0.6       # TCP端口预检超时
-HTTP_TIMEOUT = 1.2      # udpxy http状态页超时
-PRINT_INTERVAL = 10     # 每10条打印一次进度，小范围测试方便观察
+TCP_TIMEOUT = 0.4       # TCP端口预检超时，越小扫描越快
+HTTP_TIMEOUT = 1.0      # udpxy http状态页超时
+PRINT_INTERVAL = 10     # 每10条打印一次进度，方便观察
 # ======================================================
+
 def parse_range(s):
     """支持 单值、171-183连续范围、171,183逗号多选"""
     s = s.strip()
@@ -30,6 +31,7 @@ def parse_range(s):
         return list(range(int(start), int(end) + 1))
     else:
         return [int(s)]
+
 def read_config(config_file):
     print(f"读取设置文件：{config_file}")
     ip_configs = []
@@ -79,6 +81,7 @@ def read_config(config_file):
         print(f"读取文件错误: {e}")
         return None
     return ip_configs
+
 async def tcp_check(ip, port, timeout=TCP_TIMEOUT):
     """异步TCP端口预检"""
     try:
@@ -88,6 +91,7 @@ async def tcp_check(ip, port, timeout=TCP_TIMEOUT):
         return True
     except Exception:
         return False
+
 def parse_udpxy_status(html_text):
     """解析udpxy status页面，提取信息"""
     info = {
@@ -105,6 +109,7 @@ def parse_udpxy_status(html_text):
         if "Current clients" in line:
             info["current_conn"] = line.split(":")[-1].strip()
     return info
+
 async def check_udpxy(ip_port, url_end):
     ip, port = ip_port.split(":")
     if not await tcp_check(ip, port, timeout=TCP_TIMEOUT):
@@ -130,6 +135,7 @@ async def check_udpxy(ip_port, url_end):
     except Exception:
         pass
     return None
+
 def gen_ip_task(ip_info, port, mode):
     """生成器懒加载IP:port，不一次性全部载入内存"""
     if mode == "full":
@@ -154,6 +160,7 @@ def gen_ip_task(ip_info, port, mode):
         for x in range(256):
             for y in range(1, 256):
                 yield f"{a}.{b}.{x}.{y}:{port}"
+
 def count_total_tasks(ip_info, port, mode):
     """预计算总任务数量，用于进度百分比"""
     total = 0
@@ -169,6 +176,7 @@ def count_total_tasks(ip_info, port, mode):
     else:
         total = 256 * 255
     return total
+
 async def scan_ip_port(ip_info, port, url_end, mode, max_find, semaphore):
     valid_ip_ports = []
     checked = 0
@@ -197,21 +205,31 @@ async def scan_ip_port(ip_info, port, url_end, mode, max_find, semaphore):
                 print(f"\n✅ 已收集到{max_find}个有效IP，停止当前网段扫描")
                 stop_flag = True
 
-    tasks = []
+    pending_tasks = set()
+    # 普通for循环遍历生成器，不再使用async for
     for ip_port in task_generator:
         if stop_flag:
             break
-        # 使用信号量限制并发，不再每循环await wait
-        async with semaphore:
-            t = asyncio.create_task(task_wrapper(ip_port))
-            tasks.append(t)
-    # 等待全部任务完成
-    await asyncio.gather(*tasks)
+        # 等待有空位
+        await semaphore.acquire()
+        task = asyncio.create_task(task_wrapper(ip_port))
+        pending_tasks.add(task)
+        def done_cb(t):
+            semaphore.release()
+            pending_tasks.remove(t)
+        task.add_done_callback(done_cb)
+        # 防止pending堆积太多，可选：保持pending不超过SEMAPHORE_NUM*2
+        if len(pending_tasks) >= SEMAPHORE_NUM * 2:
+            await asyncio.wait(pending_tasks, return_when=asyncio.FIRST_COMPLETED)
+
+    # 等待剩下全部任务完成
+    await asyncio.gather(*pending_tasks)
 
     total_cost = time.time() - start_time
     avg_speed = round(checked / total_cost,2)
     print(f"\n本段扫描结束，总共检测 {checked} 个，有效数量：{len(valid_ip_ports)}，平均速度 {avg_speed}个/秒")
     return valid_ip_ports
+
 async def multicast_province(config_file, semaphore):
     filename = os.path.basename(config_file)
     province, operator = filename.split('_')[:2]
@@ -272,11 +290,13 @@ async def multicast_province(config_file, semaphore):
     print(f" -> json详情：{json_path}")
     print(f" -> IPTV组播文件：组播_{province}_{operator}.txt")
     return all_result
+
 async def main():
     semaphore = asyncio.Semaphore(SEMAPHORE_NUM)
     config_files = glob.glob(os.path.join('ip', '*_config.txt'))
     for cfg in config_files:
         await multicast_province(cfg, semaphore)
     print("✅ 全部扫描任务完成")
+
 if __name__ == "__main__":
     asyncio.run(main())
