@@ -6,14 +6,12 @@ import socket
 import time
 import json
 import csv
-
 # ===================== 可配置参数 =====================
 SEMAPHORE_NUM = 20      # GitHub Action建议15~30；本地电脑可50~100
 TCP_TIMEOUT = 0.6       # TCP端口预检超时
 HTTP_TIMEOUT = 1.2      # udpxy http状态页超时
-PRINT_INTERVAL = 50     # 每多少条打印一次进度
+PRINT_INTERVAL = 10     # 每10条打印一次进度，小范围测试方便观察
 # ======================================================
-
 def parse_range(s):
     """支持 单值、171-183连续范围、171,183逗号多选"""
     s = s.strip()
@@ -32,7 +30,6 @@ def parse_range(s):
         return list(range(int(start), int(end) + 1))
     else:
         return [int(s)]
-
 def read_config(config_file):
     print(f"读取设置文件：{config_file}")
     ip_configs = []
@@ -82,7 +79,6 @@ def read_config(config_file):
         print(f"读取文件错误: {e}")
         return None
     return ip_configs
-
 async def tcp_check(ip, port, timeout=TCP_TIMEOUT):
     """异步TCP端口预检"""
     try:
@@ -92,7 +88,6 @@ async def tcp_check(ip, port, timeout=TCP_TIMEOUT):
         return True
     except Exception:
         return False
-
 def parse_udpxy_status(html_text):
     """解析udpxy status页面，提取信息"""
     info = {
@@ -110,7 +105,6 @@ def parse_udpxy_status(html_text):
         if "Current clients" in line:
             info["current_conn"] = line.split(":")[-1].strip()
     return info
-
 async def check_udpxy(ip_port, url_end):
     ip, port = ip_port.split(":")
     if not await tcp_check(ip, port, timeout=TCP_TIMEOUT):
@@ -136,7 +130,6 @@ async def check_udpxy(ip_port, url_end):
     except Exception:
         pass
     return None
-
 def gen_ip_task(ip_info, port, mode):
     """生成器懒加载IP:port，不一次性全部载入内存"""
     if mode == "full":
@@ -161,7 +154,6 @@ def gen_ip_task(ip_info, port, mode):
         for x in range(256):
             for y in range(1, 256):
                 yield f"{a}.{b}.{x}.{y}:{port}"
-
 def count_total_tasks(ip_info, port, mode):
     """预计算总任务数量，用于进度百分比"""
     total = 0
@@ -177,7 +169,6 @@ def count_total_tasks(ip_info, port, mode):
     else:
         total = 256 * 255
     return total
-
 async def scan_ip_port(ip_info, port, url_end, mode, max_find, semaphore):
     valid_ip_ports = []
     checked = 0
@@ -186,7 +177,6 @@ async def scan_ip_port(ip_info, port, url_end, mode, max_find, semaphore):
     stop_flag = False
     bar_length = 20
     start_time = time.time()
-
     async def task_wrapper(ip_port):
         nonlocal checked, stop_flag
         if stop_flag:
@@ -205,7 +195,6 @@ async def scan_ip_port(ip_info, port, url_end, mode, max_find, semaphore):
             if max_find is not None and len(valid_ip_ports) >= max_find:
                 print(f"\n✅ 已收集到{max_find}个有效IP，停止当前网段扫描")
                 stop_flag = True
-
     tasks = set()
     for ip_port in task_generator:
         if stop_flag:
@@ -222,7 +211,6 @@ async def scan_ip_port(ip_info, port, url_end, mode, max_find, semaphore):
     avg_speed = round(checked / total_cost,2)
     print(f"\n本段扫描结束，总共检测 {checked} 个，有效数量：{len(valid_ip_ports)}，平均速度 {avg_speed}个/秒")
     return valid_ip_ports
-
 async def multicast_province(config_file, semaphore):
     filename = os.path.basename(config_file)
     province, operator = filename.split('_')[:2]
@@ -242,7 +230,6 @@ async def multicast_province(config_file, semaphore):
             print(f"\n开始扫描  http://{ip_info}:{port}{url_end}")
         result = await scan_ip_port(ip_info, port, url_end, mode, max_find, semaphore)
         all_result.extend(result)
-
     # ==========排序逻辑：max_client降序，IP升序，端口升序==========
     def sort_key(item):
         try:
@@ -252,9 +239,7 @@ async def multicast_province(config_file, semaphore):
         ip_nums = list(map(int, item["ip"].split(".")))
         port_num = int(item["port"])
         return (-max_c, *ip_nums, port_num)
-
     all_result = sorted(all_result, key=sort_key)
-
     os.makedirs("ip", exist_ok=True)
     # 1.简单txt
     with open(f"ip/{province}_{operator}_ip.txt", 'w', encoding='utf-8') as f:
@@ -280,20 +265,17 @@ async def multicast_province(config_file, semaphore):
             output.append(template_content.replace("ipipip", f"{item['ip_port']}"))
         with open(f"组播_{province}_{operator}.txt", 'w', encoding='utf-8') as f:
             f.write('\n'.join(output))
-
     print(f"\n{province}_{operator} 扫描完成，获取有效udpxy共：{len(all_result)}个")
     print(f" -> ip列表txt：ip/{province}_{operator}_ip.txt")
     print(f" -> 表格csv：{csv_path}")
     print(f" -> json详情：{json_path}")
     print(f" -> IPTV组播文件：组播_{province}_{operator}.txt")
     return all_result
-
 async def main():
     semaphore = asyncio.Semaphore(SEMAPHORE_NUM)
     config_files = glob.glob(os.path.join('ip', '*_config.txt'))
     for cfg in config_files:
         await multicast_province(cfg, semaphore)
     print("✅ 全部扫描任务完成")
-
 if __name__ == "__main__":
     asyncio.run(main())
