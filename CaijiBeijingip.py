@@ -11,6 +11,7 @@ SEMAPHORE_NUM = 20      # GitHub Action建议15~30；本地电脑可50~100
 TCP_TIMEOUT = 0.4       # TCP端口预检超时，越小扫描越快
 HTTP_TIMEOUT = 1.0      # udpxy http状态页超时
 PRINT_INTERVAL = 10     # 每10条打印一次进度，方便观察
+DEBUG_MODE = True       # True=开启调试打印；False=关闭调试信息
 # ======================================================
 
 def parse_range(s):
@@ -112,8 +113,11 @@ def parse_udpxy_status(html_text):
 
 async def check_udpxy(ip_port, url_end):
     ip, port = ip_port.split(":")
-    if not await tcp_check(ip, port, timeout=TCP_TIMEOUT):
+    tcp_open = await tcp_check(ip, port, timeout=TCP_TIMEOUT)
+    if not tcp_open:
         return None
+    if DEBUG_MODE:
+        print(f"[DEBUG] TCP端口通：{ip_port}")
     try:
         url = f"http://{ip_port}{url_end}"
         timeout = aiohttp.ClientTimeout(total=HTTP_TIMEOUT)
@@ -132,8 +136,15 @@ async def check_udpxy(ip_port, url_end):
                             "max_client": status_info["max_client"],
                             "current_conn": status_info["current_conn"]
                         }
-    except Exception:
-        pass
+                    else:
+                        if DEBUG_MODE:
+                            print(f"[DEBUG] 端口通，但不是udpxy页面：{ip_port}")
+                else:
+                    if DEBUG_MODE:
+                        print(f"[DEBUG] HTTP返回非200状态码:{resp.status} {ip_port}")
+    except Exception as e:
+        if DEBUG_MODE:
+            print(f"[DEBUG] HTTP访问异常 {ip_port} : {str(e)}")
     return None
 
 def gen_ip_task(ip_info, port, mode):
@@ -206,11 +217,10 @@ async def scan_ip_port(ip_info, port, url_end, mode, max_find, semaphore):
                 stop_flag = True
 
     pending_tasks = set()
-    # 普通for循环遍历生成器，不再使用async for
+    # 普通for循环遍历生成器
     for ip_port in task_generator:
         if stop_flag:
             break
-        # 等待有空位
         await semaphore.acquire()
         task = asyncio.create_task(task_wrapper(ip_port))
         pending_tasks.add(task)
@@ -218,7 +228,7 @@ async def scan_ip_port(ip_info, port, url_end, mode, max_find, semaphore):
             semaphore.release()
             pending_tasks.remove(t)
         task.add_done_callback(done_cb)
-        # 防止pending堆积太多，可选：保持pending不超过SEMAPHORE_NUM*2
+        # 限制pending任务数量
         if len(pending_tasks) >= SEMAPHORE_NUM * 2:
             await asyncio.wait(pending_tasks, return_when=asyncio.FIRST_COMPLETED)
 
