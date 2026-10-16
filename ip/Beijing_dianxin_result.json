@@ -1,1 +1,10 @@
-[]
+[
+  {
+    "ip_port": "183.157.69.194:9999",
+    "ip": "183.157.69.194",
+    "port": "9999",
+    "version": "<div id=\"footer\">udpxy v. 1.0 (Build 25) standard - [Fri Oct 16 19:06:15 2026]<br>udpxy and udpxrec are Copyright (C) 2008-2018 Pavel V. Cherenkov and licensed under GNU GPLv3</div>",
+    "max_client": "",
+    "current_conn": ""
+  }
+]
