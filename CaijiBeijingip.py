@@ -10,7 +10,7 @@ import csv
 SEMAPHORE_NUM = 20      # GitHub Action建议15~30；本地电脑可50~100
 TCP_TIMEOUT = 0.4       # TCP端口预检超时，越小扫描越快
 HTTP_TIMEOUT = 1.0      # udpxy http状态页超时
-PRINT_INTERVAL = 300     # 每10条打印一次进度，方便观察
+PRINT_INTERVAL = 500     # 每10条打印一次进度，方便观察
 DEBUG_MODE = True       # True=开启调试打印；False=关闭调试信息
 # ======================================================
 
