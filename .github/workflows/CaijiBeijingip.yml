@@ -12,24 +12,26 @@ jobs:
         with:
           fetch-depth: 0   
       
-      - name: 安装系统依赖 yt-dlp sed nmap
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y yt-dlp sed nmap
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: 3.11
-      - name: 安装python依赖
-        run: |
-          pip install aiohttp
-          pip install -r requirements.txt
+      - name: 安装依赖
+        run: pip install aiohttp
  
-      - name: 获取源（运行python扫描脚本，会生成live.txt和ip目录）
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+      - name: 获取源
         run: |
           cd $GITHUB_WORKSPACE
           python ./CaijiBeijingip.py
           
+      - name: Install Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y yt-dlp sed nmap
+        
       - name: 测试源
         run: |
           cd $GITHUB_WORKSPACE
@@ -37,21 +39,10 @@ jobs:
           bash ./CaijiBeijingip.sh
           cat txt/Beijing_dianxin.txt > zubo.txt
           
-      # 注释掉git提交，不自动push到仓库，防止github风控
-      #- name: 更新源 提交回仓库
-      #  run: |
-      #    git config --local user.email "action@github.com"
-      #    git config --local user.name "GitHub Action"
-      #    git add .
-      #    git commit -m "更新源"
-      #    git push
-      # ==========新增：上传扫描产物artifact，可在action页面下载live.txt、ip目录等文件==========
-      - name: 上传扫描结果 artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: scan-result
-          path: |
-            live.txt
-            ip/
-            *.txt
-            txt/
+      - name: 更新源
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add .
+          git commit -m "更新源"
+          git push
