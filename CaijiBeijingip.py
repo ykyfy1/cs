@@ -5,14 +5,16 @@ import aiohttp
 import time
 import json
 import csv
-
 # ===================== 可配置参数 =====================
 SEMAPHORE_NUM = 20      # GitHub Action建议15~30；本地电脑可50~100
 TCP_TIMEOUT = 0.4       # TCP端口预检超时，越小扫描越快
 HTTP_TIMEOUT = 1.0      # udpxy http状态页超时
-PRINT_INTERVAL = 1000     # 每10条打印一次进度，方便观察
+PRINT_INTERVAL = 100     # 每100条打印一次进度，方便观察
 DEBUG_MODE = True       # True=开启调试打印；False=关闭调试信息
+GEO_SEMAPHORE = 10      # 归属地查询并发，不要太高，防止ip-api限流
 # ======================================================
+# 归属地缓存，同一个IP只查一次
+geo_cache = {}
 
 def parse_range(s):
     """支持 单值、171-183连续范围、171,183逗号多选"""
@@ -83,6 +85,25 @@ def read_config(config_file):
         return None
     return ip_configs
 
+async def get_ip_geo(session, ip, sem):
+    """异步查询IP归属地，后置执行，带缓存"""
+    if ip in geo_cache:
+        return geo_cache[ip]
+    try:
+        async with sem:
+            url = f"http://ip-api.com/json/{ip}?lang=zh-CN"
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    if data["status"] == "success":
+                        loc = f"{data['regionName']} {data['city']} | {data['isp']}"
+                        geo_cache[ip] = loc
+                        return loc
+    except Exception:
+        pass
+    geo_cache[ip] = "未知归属地"
+    return "未知归属地"
+
 async def tcp_check(ip, port, timeout=TCP_TIMEOUT):
     """异步TCP端口预检"""
     try:
@@ -134,7 +155,8 @@ async def check_udpxy(ip_port, url_end):
                             "port": port,
                             "version": status_info["version"],
                             "max_client": status_info["max_client"],
-                            "current_conn": status_info["current_conn"]
+                            "current_conn": status_info["current_conn"],
+                            "geo": ""  # 归属地留空，后面统一填充
                         }
                     else:
                         if DEBUG_MODE:
@@ -196,7 +218,6 @@ async def scan_ip_port(ip_info, port, url_end, mode, max_find, semaphore):
     stop_flag = False
     bar_length = 20
     start_time = time.time()
-
     async def task_wrapper(ip_port):
         nonlocal checked, stop_flag
         if stop_flag:
@@ -215,7 +236,6 @@ async def scan_ip_port(ip_info, port, url_end, mode, max_find, semaphore):
             if max_find is not None and len(valid_ip_ports) >= max_find:
                 print(f"\n✅ 已收集到{max_find}个有效IP，停止当前网段扫描")
                 stop_flag = True
-
     pending_tasks = set()
     # 普通for循环遍历生成器
     for ip_port in task_generator:
@@ -231,10 +251,8 @@ async def scan_ip_port(ip_info, port, url_end, mode, max_find, semaphore):
         # 限制pending任务数量
         if len(pending_tasks) >= SEMAPHORE_NUM * 2:
             await asyncio.wait(pending_tasks, return_when=asyncio.FIRST_COMPLETED)
-
     # 等待剩下全部任务完成
     await asyncio.gather(*pending_tasks)
-
     total_cost = time.time() - start_time
     avg_speed = round(checked / total_cost,2)
     print(f"\n本段扫描结束，总共检测 {checked} 个，有效数量：{len(valid_ip_ports)}，平均速度 {avg_speed}个/秒")
@@ -259,6 +277,18 @@ async def multicast_province(config_file, semaphore):
             print(f"\n开始扫描  http://{ip_info}:{port}{url_end}")
         result = await scan_ip_port(ip_info, port, url_end, mode, max_find, semaphore)
         all_result.extend(result)
+
+    # ====================== 扫描全部完成后，批量查询归属地 ======================
+    print(f"\n🔍 开始批量查询{len(all_result)}个IP的归属地...")
+    geo_sem = asyncio.Semaphore(GEO_SEMAPHORE)
+    async with aiohttp.ClientSession() as session:
+        tasks = []
+        for item in all_result:
+            async def fill_geo(it):
+                it["geo"] = await get_ip_geo(session, it["ip"], geo_sem)
+            tasks.append(fill_geo(item))
+        await asyncio.gather(*tasks)
+
     # ==========排序逻辑：max_client降序，IP升序，端口升序==========
     def sort_key(item):
         try:
@@ -269,15 +299,16 @@ async def multicast_province(config_file, semaphore):
         port_num = int(item["port"])
         return (-max_c, *ip_nums, port_num)
     all_result = sorted(all_result, key=sort_key)
+
     os.makedirs("ip", exist_ok=True)
     # 1.简单txt
     with open(f"ip/{province}_{operator}_ip.txt", 'w', encoding='utf-8') as f:
         for item in all_result:
-            f.write(f"{item['ip_port']}\n")
+            f.write(f"{item['ip_port']} | {item['geo']}\n")
     # 2.csv
     csv_path = f"ip/{province}_{operator}_result.csv"
     with open(csv_path, 'w', encoding='utf-8-sig', newline='') as f:
-        writer = csv.DictWriter(f, fieldnames=["ip_port","ip","port","version","max_client","current_conn"])
+        writer = csv.DictWriter(f, fieldnames=["ip_port","ip","port","version","max_client","current_conn","geo"])
         writer.writeheader()
         writer.writerows(all_result)
     #3.json
