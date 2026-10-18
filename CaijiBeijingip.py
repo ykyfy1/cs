@@ -5,14 +5,19 @@ import aiohttp
 import time
 import json
 import csv
+from typing import Dict
 
 # ===================== 可配置参数 =====================
 SEMAPHORE_NUM = 20      # GitHub Action建议15~30；本地电脑可50~100
 TCP_TIMEOUT = 0.4       # TCP端口预检超时，越小扫描越快
 HTTP_TIMEOUT = 1.0      # udpxy http状态页超时
-PRINT_INTERVAL = 1000     # 每10条打印一次进度，方便观察
+PRINT_INTERVAL = 1000   # 每多少条打印一次进度
 DEBUG_MODE = True       # True=开启调试打印；False=关闭调试信息
+LOC_SEMAPHORE = 3       # 归属地查询并发，不要开大，防止API限流
 # ======================================================
+
+# IP归属地缓存，同一个IP只查询一次
+ip_location_cache: Dict[str, dict] = {}
 
 def parse_range(s):
     """支持 单值、171-183连续范围、171,183逗号多选"""
@@ -33,6 +38,29 @@ def parse_range(s):
     else:
         return [int(s)]
 
+async def get_ip_location(session: aiohttp.ClientSession, ip: str, loc_sem: asyncio.Semaphore):
+    """异步查询IP归属地，带缓存，中文返回"""
+    if ip in ip_location_cache:
+        return ip_location_cache[ip]
+    try:
+        async with loc_sem:
+            url = f"http://ip-api.com/json/{ip}?lang=zh-CN&fields=status,country,regionName,city,isp"
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=3)) as resp:
+                data = await resp.json()
+                if data.get("status") == "success":
+                    res = {
+                        "country": data.get("country", ""),
+                        "region": data.get("regionName", ""),
+                        "city": data.get("city", ""),
+                        "isp": data.get("isp", "")
+                    }
+                else:
+                    res = {"country": "", "region": "", "city": "", "isp": "查询失败"}
+    except Exception:
+        res = {"country": "", "region": "", "city": "", "isp": "查询超时"}
+    ip_location_cache[ip] = res
+    return res
+
 def read_config(config_file):
     print(f"读取设置文件：{config_file}")
     ip_configs = []
@@ -42,9 +70,7 @@ def read_config(config_file):
                 line = line.strip()
                 if not line or line.startswith("#"):
                     continue
-                # 只拆分第一个冒号，区分【IP表达式】和【端口+参数】
                 ip_expr, rest = line.split(':', 1)
-                # rest样例：4022|8888|8188,0,10
                 rest_parts = rest.split(',')
                 port_str = rest_parts[0].strip()
                 url_flag = int(rest_parts[1])
@@ -111,7 +137,7 @@ def parse_udpxy_status(html_text):
             info["current_conn"] = line.split(":")[-1].strip()
     return info
 
-async def check_udpxy(ip_port, url_end):
+async def check_udpxy(ip_port, url_end, loc_session, loc_sem):
     ip, port = ip_port.split(":")
     tcp_open = await tcp_check(ip, port, timeout=TCP_TIMEOUT)
     if not tcp_open:
@@ -127,14 +153,20 @@ async def check_udpxy(ip_port, url_end):
                     text = await resp.text()
                     if "Multi stream daemon" in text or "udpxy status" in text:
                         status_info = parse_udpxy_status(text)
-                        print(f"✅ {url} | 版本:{status_info['version']} | 最大客户端:{status_info['max_client']} | 当前连接:{status_info['current_conn']}")
+                        # 查询归属地
+                        loc_info = await get_ip_location(loc_session, ip, loc_sem)
+                        print(f"✅ {url} | 版本:{status_info['version']} | 最大客户端:{status_info['max_client']} | 当前连接:{status_info['current_conn']} | 属地:{loc_info['region']} {loc_info['city']} {loc_info['isp']}")
                         return {
                             "ip_port": ip_port,
                             "ip": ip,
                             "port": port,
                             "version": status_info["version"],
                             "max_client": status_info["max_client"],
-                            "current_conn": status_info["current_conn"]
+                            "current_conn": status_info["current_conn"],
+                            "country": loc_info["country"],
+                            "region": loc_info["region"],
+                            "city": loc_info["city"],
+                            "isp": loc_info["isp"]
                         }
                     else:
                         if DEBUG_MODE:
@@ -188,7 +220,7 @@ def count_total_tasks(ip_info, port, mode):
         total = 256 * 255
     return total
 
-async def scan_ip_port(ip_info, port, url_end, mode, max_find, semaphore):
+async def scan_ip_port(ip_info, port, url_end, mode, max_find, semaphore, loc_session, loc_sem):
     valid_ip_ports = []
     checked = 0
     total_task = count_total_tasks(ip_info, port, mode)
@@ -196,12 +228,15 @@ async def scan_ip_port(ip_info, port, url_end, mode, max_find, semaphore):
     stop_flag = False
     bar_length = 20
     start_time = time.time()
-
+    
+    # ========== live.txt 实时保存（延迟打开，找到第一个存活源才创建文件） ==========
+    live_file = None
+    
     async def task_wrapper(ip_port):
-        nonlocal checked, stop_flag
+        nonlocal checked, stop_flag, live_file
         if stop_flag:
             return
-        res = await check_udpxy(ip_port, url_end)
+        res = await check_udpxy(ip_port, url_end, loc_session, loc_sem)
         checked += 1
         if checked % PRINT_INTERVAL == 0:
             pct = (checked / total_task)*100
@@ -212,12 +247,19 @@ async def scan_ip_port(ip_info, port, url_end, mode, max_find, semaphore):
             print(f"📊 进度：{checked}/{total_task} | {pct:.2f}% | 存活：{len(valid_ip_ports)} | [{bar}] | 速度：{speed}个/秒")
         if res:
             valid_ip_ports.append(res)
+            # ===== 实时写入 live.txt，立即刷盘，防止中断丢失 =====
+            if live_file is None:
+                live_file = open("live.txt", "a", encoding="utf-8")
+            now_str = time.strftime("%H:%M:%S")
+            loc_str = f"{res['region']} {res['city']} {res['isp']}"
+            live_file.write(f"{now_str} | {res['ip_port']} | max_client={res['max_client']} | conn={res['current_conn']} | {loc_str}\n")
+            live_file.flush()  # 关键：立即写入磁盘，不留在内存缓冲区
+            # ====================================================
             if max_find is not None and len(valid_ip_ports) >= max_find:
                 print(f"\n✅ 已收集到{max_find}个有效IP，停止当前网段扫描")
                 stop_flag = True
-
+    
     pending_tasks = set()
-    # 普通for循环遍历生成器
     for ip_port in task_generator:
         if stop_flag:
             break
@@ -228,19 +270,21 @@ async def scan_ip_port(ip_info, port, url_end, mode, max_find, semaphore):
             semaphore.release()
             pending_tasks.remove(t)
         task.add_done_callback(done_cb)
-        # 限制pending任务数量
         if len(pending_tasks) >= SEMAPHORE_NUM * 2:
             await asyncio.wait(pending_tasks, return_when=asyncio.FIRST_COMPLETED)
-
-    # 等待剩下全部任务完成
+    
     await asyncio.gather(*pending_tasks)
-
+    
+    # 关闭 live.txt 文件句柄
+    if live_file:
+        live_file.close()
+    
     total_cost = time.time() - start_time
     avg_speed = round(checked / total_cost,2)
     print(f"\n本段扫描结束，总共检测 {checked} 个，有效数量：{len(valid_ip_ports)}，平均速度 {avg_speed}个/秒")
     return valid_ip_ports
 
-async def multicast_province(config_file, semaphore):
+async def multicast_province(config_file, semaphore, loc_session, loc_sem):
     filename = os.path.basename(config_file)
     province, operator = filename.split('_')[:2]
     print(f"{'=' * 25}\n   获取: {province}_{operator}ip_port\n{'=' * 25}")
@@ -257,9 +301,10 @@ async def multicast_province(config_file, semaphore):
             print(f"\n开始扫描四段范围 {a_seg}.{b_seg}.{c_seg}.{d_seg}:{port}{url_end}")
         else:
             print(f"\n开始扫描  http://{ip_info}:{port}{url_end}")
-        result = await scan_ip_port(ip_info, port, url_end, mode, max_find, semaphore)
+        result = await scan_ip_port(ip_info, port, url_end, mode, max_find, semaphore, loc_session, loc_sem)
         all_result.extend(result)
-    # ==========排序逻辑：max_client降序，IP升序，端口升序==========
+    
+    # 排序逻辑
     def sort_key(item):
         try:
             max_c = int(item["max_client"])
@@ -269,22 +314,23 @@ async def multicast_province(config_file, semaphore):
         port_num = int(item["port"])
         return (-max_c, *ip_nums, port_num)
     all_result = sorted(all_result, key=sort_key)
+    
     os.makedirs("ip", exist_ok=True)
-    # 1.简单txt
+    # 1.简单txt（带归属地）
     with open(f"ip/{province}_{operator}_ip.txt", 'w', encoding='utf-8') as f:
         for item in all_result:
-            f.write(f"{item['ip_port']}\n")
+            f.write(f"{item['ip_port']} | {item['region']} {item['city']} {item['isp']}\n")
     # 2.csv
     csv_path = f"ip/{province}_{operator}_result.csv"
     with open(csv_path, 'w', encoding='utf-8-sig', newline='') as f:
-        writer = csv.DictWriter(f, fieldnames=["ip_port","ip","port","version","max_client","current_conn"])
+        writer = csv.DictWriter(f, fieldnames=["ip_port","ip","port","version","max_client","current_conn","country","region","city","isp"])
         writer.writeheader()
         writer.writerows(all_result)
-    #3.json
+    # 3.json
     json_path = f"ip/{province}_{operator}_result.json"
     with open(json_path, 'w', encoding='utf-8') as f:
         json.dump(all_result, f, ensure_ascii=False, indent=2)
-    #4.组播模板
+    # 4.组播模板
     template_file = os.path.join('template', f"template_{province}_{operator}.txt")
     if os.path.exists(template_file):
         with open(template_file, 'r', encoding='utf-8') as f:
@@ -294,6 +340,7 @@ async def multicast_province(config_file, semaphore):
             output.append(template_content.replace("ipipip", f"{item['ip_port']}"))
         with open(f"组播_{province}_{operator}.txt", 'w', encoding='utf-8') as f:
             f.write('\n'.join(output))
+    
     print(f"\n{province}_{operator} 扫描完成，获取有效udpxy共：{len(all_result)}个")
     print(f" -> ip列表txt：ip/{province}_{operator}_ip.txt")
     print(f" -> 表格csv：{csv_path}")
@@ -302,11 +349,23 @@ async def multicast_province(config_file, semaphore):
     return all_result
 
 async def main():
+    # ========== 启动时清空旧的 live.txt，避免新旧数据混杂 ==========
+    if os.path.exists("live.txt"):
+        os.remove("live.txt")
+    print("📝 实时存活源将保存到 live.txt（每发现一个立即写入）")
+    # ============================================================
+    
     semaphore = asyncio.Semaphore(SEMAPHORE_NUM)
+    loc_sem = asyncio.Semaphore(LOC_SEMAPHORE)
+    loc_session = aiohttp.ClientSession()
+    
     config_files = glob.glob(os.path.join('ip', '*_config.txt'))
     for cfg in config_files:
-        await multicast_province(cfg, semaphore)
+        await multicast_province(cfg, semaphore, loc_session, loc_sem)
+    
+    await loc_session.close()
     print("✅ 全部扫描任务完成")
+    print(f"📄 实时存活源记录：live.txt")
 
 if __name__ == "__main__":
     asyncio.run(main())
