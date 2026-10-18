@@ -16,12 +16,10 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y yt-dlp sed nmap
-
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: 3.11
-
       - name: 安装python依赖
         run: |
           pip install aiohttp
@@ -39,14 +37,14 @@ jobs:
           bash ./CaijiBeijingip.sh
           cat txt/Beijing_dianxin.txt > zubo.txt
           
-      - name: 更新源 提交回仓库
-        run: |
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
-          git add .
-          git commit -m "更新源"
-          git push
-
+      # 注释掉git提交，不自动push到仓库，防止github风控
+      #- name: 更新源 提交回仓库
+      #  run: |
+      #    git config --local user.email "action@github.com"
+      #    git config --local user.name "GitHub Action"
+      #    git add .
+      #    git commit -m "更新源"
+      #    git push
       # ==========新增：上传扫描产物artifact，可在action页面下载live.txt、ip目录等文件==========
       - name: 上传扫描结果 artifact
         uses: actions/upload-artifact@v4
