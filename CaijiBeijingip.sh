@@ -32,7 +32,7 @@ esac
 # 使用城市名作为默认文件名，格式为 CityName.ip
 time=$(date +%m%d%H%M)
 ipfile=ip/${city}_ip.txt
-good_ip=ip/${city}_ip.txt
+good_ip=ip/good_${city}_ip.txt
 result_ip=ip/result_${city}_ip.txt
 echo "======== 开始检索 ${city} ========"
 #echo "从 fofa 获取ip+端口"
