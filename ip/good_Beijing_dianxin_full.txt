@@ -1,8 +1,8 @@
-27.10.74.168:8007 | 重庆市 重庆市 | China Unicom Chongqing Province Network
-27.10.74.168:8008 | 重庆市 重庆市 | China Unicom Chongqing Province Network
-27.10.74.168:8009 | 重庆市 重庆市 | China Unicom Chongqing Province Network
-27.10.74.168:8010 | 重庆市 重庆市 | China Unicom Chongqing Province Network
-27.11.58.172:8007 | 重庆市 重庆市 | China Unicom Chongqing Province Network
-27.11.58.172:8008 | 重庆市 重庆市 | China Unicom Chongqing Province Network
-27.11.58.172:8009 | 重庆市 重庆市 | China Unicom Chongqing Province Network
-27.11.58.172:8010 | 重庆市 重庆市 | China Unicom Chongqing Province Network
+27.10.74.168:8007 | 重庆市 重庆市 | China Unicom Chongqing Province Network | 测速: 0 kbps
+27.10.74.168:8008 | 重庆市 重庆市 | China Unicom Chongqing Province Network | 测速: 0 kbps
+27.10.74.168:8009 | 重庆市 重庆市 | China Unicom Chongqing Province Network | 测速: 0 kbps
+27.10.74.168:8010 | 重庆市 重庆市 | China Unicom Chongqing Province Network | 测速: 0 kbps
+27.11.58.172:8007 | 重庆市 重庆市 | China Unicom Chongqing Province Network | 测速: 0 kbps
+27.11.58.172:8008 | 重庆市 重庆市 | China Unicom Chongqing Province Network | 测速: 0 kbps
+27.11.58.172:8009 | 重庆市 重庆市 | China Unicom Chongqing Province Network | 测速: 0 kbps
+27.11.58.172:8010 | 重庆市 重庆市 | China Unicom Chongqing Province Network | 测速: 0 kbps
