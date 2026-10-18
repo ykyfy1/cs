@@ -10,7 +10,7 @@ import re
 SEMAPHORE_NUM = 20      # GitHub Action建议15~30；本地电脑可50~100
 TCP_TIMEOUT = 0.4       # TCP端口预检超时，越小扫描越快
 HTTP_TIMEOUT = 1.0      # udpxy http状态页超时
-PRINT_INTERVAL = 100     # 每100条打印一次进度，方便观察
+PRINT_INTERVAL = 1000     # 每100条打印一次进度，方便观察
 DEBUG_MODE = False       # True=开启调试打印；False=关闭调试信息
 GEO_SEMAPHORE = 10      # 归属地查询并发，不要太高，防止ip-api限流
 GEO_ENABLE = True        # True开启归属地；False跳过归属地查询（不访问外网，稳定）
