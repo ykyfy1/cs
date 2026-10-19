@@ -242,12 +242,8 @@ async def scan_ip_port(ip_info, port, url_end, mode, max_find, semaphore, global
             cost = time.time() - start_time
             speed = round(checked / cost, 2)
             total_valid_text = f"| 全局累计:{total_valid[0]}/{max_total_find}" if max_total_find else f"| 全局累计:{total_valid[0]}"
-            # 先输出完整彩色进度条，然后光标回退，叠加打印百分比文字
-            backspace = "\b" * bar_length
-            output_line = f"📊 进度：{checked}/{total_task} | 本段存活：{len(valid_ip_ports)} | [{bar_color}{bar_str}{RESET}]"
-            output_line += backspace + f"  {percent_text}]"
-            output_line += f" | 速度：{speed}个/秒 {total_valid_text}"
-            print(output_line, flush=True)
+            # 【无退格，不会乱码！】色块完整，百分比放在框内右侧
+            print(f"📊 进度：{checked}/{total_task} | 本段存活：{len(valid_ip_ports)} | [{bar_color}{bar_str}{RESET}] {percent_text} | 速度：{speed}个/秒 {total_valid_text}", flush=True)
         if res:
             valid_ip_ports.append(res)
             total_valid[0] += 1
