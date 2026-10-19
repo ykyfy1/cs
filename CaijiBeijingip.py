@@ -236,14 +236,20 @@ async def scan_ip_port(ip_info, port, url_end, mode, max_find, semaphore, global
                 bar_color = "\033[92m" #绿色
             RESET = "\033[0m"
             filled_len = int(bar_length * checked / total_task)
-            # 完整不间断色块，铺满整个进度条，不会被文字截断
-            bar_str = "█" * filled_len + "░" * (bar_length - filled_len)
-            percent_text = f"\033[1;97m{pct:.2f}%\033[0m" #白色加粗百分比
+            percent_text = f"{pct:.2f}%"
+            # 先填充色块
+            bar_chars = list("█" * filled_len + " " * (bar_length - filled_len))
+            # 把百分比文字居中放进进度条
+            text_start = (bar_length - len(percent_text)) // 2
+            for i, ch in enumerate(percent_text):
+                if text_start + i < bar_length:
+                    bar_chars[text_start + i] = ch
+            bar_str = "".join(bar_chars)
             cost = time.time() - start_time
             speed = round(checked / cost, 2)
             total_valid_text = f"| 全局累计:{total_valid[0]}/{max_total_find}" if max_total_find else f"| 全局累计:{total_valid[0]}"
-            # 【无退格，不会乱码！】色块完整，百分比放在框内右侧
-            print(f"📊 进度：{checked}/{total_task} | 本段存活：{len(valid_ip_ports)} | [{bar_color}{bar_str}{RESET}] {percent_text} | 速度：{speed}个/秒 {total_valid_text}", flush=True)
+            # flush=True 强制刷新日志
+            print(f"📊 进度：{checked}/{total_task} | {pct:.2f}% | 本段存活：{len(valid_ip_ports)} | [{bar_color}{bar_str}{RESET}] | 速度：{speed}个/秒 {total_valid_text}", flush=True)
         if res:
             valid_ip_ports.append(res)
             total_valid[0] += 1
