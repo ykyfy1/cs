@@ -1,8 +1,3 @@
-27.10.74.168:8007 | 重庆市 重庆市 | China Unicom Chongqing Province Network
-27.10.74.168:8008 | 重庆市 重庆市 | China Unicom Chongqing Province Network
-27.10.74.168:8009 | 重庆市 重庆市 | China Unicom Chongqing Province Network
-27.10.74.168:8010 | 重庆市 重庆市 | China Unicom Chongqing Province Network
-27.11.58.172:8007 | 重庆市 重庆市 | China Unicom Chongqing Province Network
-27.11.58.172:8008 | 重庆市 重庆市 | China Unicom Chongqing Province Network
-27.11.58.172:8009 | 重庆市 重庆市 | China Unicom Chongqing Province Network
-27.11.58.172:8010 | 重庆市 重庆市 | China Unicom Chongqing Province Network
+113.65.9.142:4111 | 版本:v. 1.0 Build 25 | 最大客户端: | 当前连接: | 广东 广州市 | Chinanet
+113.65.9.198:4013 | 版本:v. 1.0 Build 25 | 最大客户端: | 当前连接: | 广东 广州市 | Chinanet
+113.65.9.198:4111 | 版本:v. 1.0 Build 25 | 最大客户端: | 当前连接: | 广东 广州市 | Chinanet
