@@ -68,7 +68,7 @@ def read_config(config_file):
                             ((a_seg, b_seg, c_seg, d_seg), port, url_end, "range4", max_find)
                         )
                     elif dot_count == 0:
-                        first_seg = ip_info
+                        first_seg = ip_part
                         ip_configs.append(
                             (first_seg, port, url_end, "full", max_find)
                         )
@@ -156,8 +156,7 @@ async def check_udpxy(ip_port, url_end):
                             "version": status_info["version"],
                             "max_client": status_info["max_client"],
                             "current_conn": status_info["current_conn"],
-                            "geo": "",
-                            "speed": "0.00"
+                            "geo": ""
                         }
                     else:
                         if DEBUG_MODE:
@@ -228,25 +227,27 @@ async def scan_ip_port(ip_info, port, url_end, mode, max_find, semaphore, global
         if int(pct) //5 > last_print_pct:
             last_print_pct = int(pct) //5
             fraction = checked / total_task
-            filled_len = int(bar_length * checked / total_task)
-            # 色块颜色
+            # 自动切换颜色
             if fraction < 0.33:
-                fill_char = "\033[31m█\033[0m"  #红色填充块
+                bar_color = "\033[91m" #红色
             elif fraction < 0.66:
-                fill_char = "\033[38;5;94m█\033[0m" #咖啡色
+                bar_color = "\033[93m" #黄色
             else:
-                fill_char = "\033[32m█\033[0m" #绿色填充块
-            bar_fill = fill_char * filled_len
-            bar_empty = "░" * (bar_length - filled_len)
-            bar_str = bar_fill + bar_empty
-
-            # 百分比文字【加粗亮白】，独立显示，不再嵌入进度条
-            percent_text = f"\033[1;97m{pct:.2f}%\033[0m"
-
+                bar_color = "\033[92m" #绿色
+            RESET = "\033[0m"
+            filled_len = int(bar_length * checked / total_task)
+            # 完整不间断色块，铺满整个进度条，不会被文字截断
+            bar_str = "█" * filled_len + "░" * (bar_length - filled_len)
+            percent_text = f"\033[1;97m{pct:.2f}%\033[0m" #白色加粗百分比
             cost = time.time() - start_time
             speed = round(checked / cost, 2)
             total_valid_text = f"| 全局累计:{total_valid[0]}/{max_total_find}" if max_total_find else f"| 全局累计:{total_valid[0]}"
-            print(f"📊 进度：{checked}/{total_task} | {percent_text} | 本段存活：{len(valid_ip_ports)} | [{bar_str}] | 速度：{speed}个/秒 {total_valid_text}", flush=True)
+            # 先输出完整彩色进度条，然后光标回退，叠加打印百分比文字
+            backspace = "\b" * bar_length
+            output_line = f"📊 进度：{checked}/{total_task} | 本段存活：{len(valid_ip_ports)} | [{bar_color}{bar_str}{RESET}]"
+            output_line += backspace + f"  {percent_text}]"
+            output_line += f" | 速度：{speed}个/秒 {total_valid_text}"
+            print(output_line, flush=True)
         if res:
             valid_ip_ports.append(res)
             total_valid[0] += 1
@@ -336,7 +337,7 @@ async def multicast_province(config_file, semaphore, global_stop_event, total_va
         return (-max_c, *ip_nums, port_num)
     all_result = sorted(all_result, key=sort_key)
     os.makedirs("ip", exist_ok=True)
-    # ========== 双文件输出 ==========
+    # ========== 重点修改：双文件输出 ==========
     # 1.纯IP端口txt【测速程序读取，无任何额外内容，保证测速正常】
     with open(f"ip/good_{province}_{operator}_ip.txt", 'w', encoding='utf-8') as f:
         for item in all_result:
@@ -344,11 +345,11 @@ async def multicast_province(config_file, semaphore, global_stop_event, total_va
     # 2.完整信息txt【带归属地，归档查看】
     with open(f"ip/good_{province}_{operator}_full.txt", 'w', encoding='utf-8') as f:
         for item in all_result:
-            f.write(f"{item['ip_port']} | 版本:{item['version']} | 最大客户端:{item['max_client']} | 当前连接:{item['current_conn']} | {item['geo']} | 速度:{item['speed']}\n")
+            f.write(f"{item['ip_port']} | 版本:{item['version']} | 最大客户端:{item['max_client']} | 当前连接:{item['current_conn']} | {item['geo']}\n")
     # 3.csv
     csv_path = f"ip/good_{province}_{operator}_result.csv"
     with open(csv_path, 'w', encoding='utf-8-sig', newline='') as f:
-        writer = csv.DictWriter(f, fieldnames=["ip_port","ip","port","version","max_client","current_conn","geo","speed"])
+        writer = csv.DictWriter(f, fieldnames=["ip_port","ip","port","version","max_client","current_conn","geo"])
         writer.writeheader()
         writer.writerows(all_result)
     #4.json
@@ -372,59 +373,16 @@ async def multicast_province(config_file, semaphore, global_stop_event, total_va
     print(f" -> json详情：{json_path}", flush=True)
     print(f" -> IPTV组播文件：组播_{province}_{operator}.txt", flush=True)
     return all_result
-
-# 新增：读取测速结果，合并speed到数据
-def load_speed_result(all_items):
-    speed_map = {}
-    speed_file = "ip/speed_result.txt"
-    if not os.path.exists(speed_file):
-        print(f"\n⚠️ 测速文件 {speed_file} 不存在，速度保持0.00", flush=True)
-        return all_items
-    print(f"\n📥 读取测速结果 {speed_file}，合并速度数据", flush=True)
-    with open(speed_file, "r", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            # 匹配 ip:port | speed:xxx
-            match = re.match(r"(.+?)\s*\|\s*speed:([\d\.]+)", line)
-            if match:
-                ip_port = match.group(1).strip()
-                speed_val = match.group(2).strip()
-                speed_map[ip_port] = speed_val
-    # 回填speed
-    for item in all_items:
-        if item["ip_port"] in speed_map:
-            item["speed"] = speed_map[item["ip_port"]]
-    return all_items
-
 async def main():
     semaphore = asyncio.Semaphore(SEMAPHORE_NUM)
     global_stop_event = asyncio.Event()
     total_valid = [0]  # 全局累计有效数，用list包以便协程内修改
     config_files = glob.glob(os.path.join('ip', '*_config.txt'))
-    all_provinces_data = []
     for cfg in config_files:
         if global_stop_event.is_set():
             print("全局停止，跳过剩余省份配置文件", flush=True)
             break
-        res_data = await multicast_province(cfg, semaphore, global_stop_event, total_valid, MAX_TOTAL_FIND)
-        all_provinces_data.extend(res_data)
-
-    # ========= 全部扫描结束后，读取测速结果，重写full.txt =========
-    print("\n==== 全部网段扫描完毕，开始合并测速结果 ====")
-    all_provinces_data = load_speed_result(all_provinces_data)
-    # 重新遍历所有省份，重写full.txt
-    config_files = glob.glob(os.path.join('ip', '*_config.txt'))
-    for cfg in config_files:
-        filename = os.path.basename(cfg)
-        province, operator = filename.split('_')[:2]
-        # 筛选当前省份的数据
-        province_data = [x for x in all_provinces_data if x["geo"]]
-        # 重写full.txt，带上速度
-        with open(f"ip/good_{province}_{operator}_full.txt", 'w', encoding='utf-8') as f:
-            for item in province_data:
-                f.write(f"{item['ip_port']} | 版本:{item['version']} | 最大客户端:{item['max_client']} | 当前连接:{item['current_conn']} | {item['geo']} | 速度:{item['speed']}\n")
-    print(f"✅ 全部扫描+测速合并完成，总共累计收集有效源 {total_valid[0]} 个", flush=True)
+        await multicast_province(cfg, semaphore, global_stop_event, total_valid, MAX_TOTAL_FIND)
+    print(f"✅ 全部扫描任务完成，总共累计收集有效源 {total_valid[0]} 个", flush=True)
 if __name__ == "__main__":
     asyncio.run(main())
