@@ -232,7 +232,7 @@ async def scan_ip_port(ip_info, port, url_end, mode, max_find, semaphore, global
             percent_text = f"{pct:.2f}%"
             # 色块颜色
             if fraction < 0.33:
-                fill_char = "\033[91m█\033[0m"  #红色填充块
+                fill_char = "\033[31m█\033[0m"  #红色填充块
             elif fraction < 0.66:
                 fill_char = "\033[38;5;94m█\033[0m" #咖啡色
             else:
@@ -241,14 +241,15 @@ async def scan_ip_port(ip_info, port, url_end, mode, max_find, semaphore, global
             bar_empty = "░" * (bar_length - filled_len)
             bar_str = bar_fill + bar_empty
 
-            # 百分比文字叠加到进度条中间
+            # 百分比文字【加粗亮白】
             text_pos = bar_length // 2
             bar_list = list(bar_str)
             percent_chars = list(percent_text)
             for i, char in enumerate(percent_chars):
                 idx = text_pos + i
                 if idx < len(bar_list):
-                    bar_list[idx] = f"\033[97m{char}\033[0m"
+                    # \033[1;97m = 加粗 + 亮白色
+                    bar_list[idx] = f"\033[1;97m{char}\033[0m"
             bar_str = "".join(bar_list)
 
             cost = time.time() - start_time
