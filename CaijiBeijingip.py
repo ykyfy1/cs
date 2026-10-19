@@ -232,7 +232,7 @@ async def scan_ip_port(ip_info, port, url_end, mode, max_find, semaphore, global
             percent_text = f"{pct:.2f}%"
             # 色块颜色
             if fraction < 0.33:
-                fill_char = "\033[31m█\033[0m"  #红色填充块
+                fill_char = "\033[91m█\033[0m"  #红色填充块
             elif fraction < 0.66:
                 fill_char = "\033[38;5;94m█\033[0m" #咖啡色
             else:
