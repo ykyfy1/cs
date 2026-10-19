@@ -230,16 +230,27 @@ async def scan_ip_port(ip_info, port, url_end, mode, max_find, semaphore, global
             fraction = checked / total_task
             filled_len = int(bar_length * checked / total_task)
             percent_text = f"{pct:.2f}%"
-            # 【修改进度条：色块本身变色，无全局背景】
+            # 色块颜色
             if fraction < 0.33:
-                fill_char = "\033[31m█\033[0m"  #红色填充块
+                fill_char = "\033[91m█\033[0m"  #红色填充块
             elif fraction < 0.66:
-                fill_char = "\033[38;5;94m█\033[0m" #咖啡色/棕褐色
+                fill_char = "\033[38;5;94m█\033[0m" #咖啡色
             else:
                 fill_char = "\033[32m█\033[0m" #绿色填充块
             bar_fill = fill_char * filled_len
             bar_empty = "░" * (bar_length - filled_len)
             bar_str = bar_fill + bar_empty
+
+            # 百分比文字叠加到进度条中间
+            text_pos = bar_length // 2
+            bar_list = list(bar_str)
+            percent_chars = list(percent_text)
+            for i, char in enumerate(percent_chars):
+                idx = text_pos + i
+                if idx < len(bar_list):
+                    bar_list[idx] = f"\033[97m{char}\033[0m"
+            bar_str = "".join(bar_list)
+
             cost = time.time() - start_time
             speed = round(checked / cost, 2)
             total_valid_text = f"| 全局累计:{total_valid[0]}/{max_total_find}" if max_total_find else f"| 全局累计:{total_valid[0]}"
@@ -412,17 +423,12 @@ async def main():
     print("\n==== 全部网段扫描完毕，开始合并测速结果 ====")
     all_provinces_data = load_speed_result(all_provinces_data)
     # 重新遍历所有省份，重写full.txt
-    province_set = set()
-    for item in all_provinces_data:
-        # 提取省份运营商（从文件名逻辑，这里简化，如果你多省份，这里可以适配）
-        pass
-    # 重新生成所有full文件
     config_files = glob.glob(os.path.join('ip', '*_config.txt'))
     for cfg in config_files:
         filename = os.path.basename(cfg)
         province, operator = filename.split('_')[:2]
         # 筛选当前省份的数据
-        province_data = [x for x in all_provinces_data if (province in x["geo"] or True)]
+        province_data = [x for x in all_provinces_data if x["geo"]]
         # 重写full.txt，带上速度
         with open(f"ip/good_{province}_{operator}_full.txt", 'w', encoding='utf-8') as f:
             for item in province_data:
