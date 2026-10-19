@@ -224,12 +224,30 @@ async def scan_ip_port(ip_info, port, url_end, mode, max_find, semaphore, global
         checked += 1
         if checked % PRINT_INTERVAL == 0:
             pct = (checked / total_task)*100
-            filled = min(int(bar_length * checked // total_task), bar_length)
-            bar = '=' * filled + '-' * (bar_length - filled)
+            fraction = checked / total_task
+            # 自动切换颜色
+            if fraction < 0.33:
+                bar_color = "\033[91m" #红色
+            elif fraction < 0.66:
+                bar_color = "\033[93m" #黄色
+            else:
+                bar_color = "\033[92m" #绿色
+            RESET = "\033[0m"
+            filled_len = int(bar_length * checked / total_task)
+            percent_text = f"{pct:.2f}%"
+            # 先填充色块
+            bar_chars = list("█" * filled_len + " " * (bar_length - filled_len))
+            # 把百分比文字居中放进进度条
+            text_start = (bar_length - len(percent_text)) // 2
+            for i, ch in enumerate(percent_text):
+                if text_start + i < bar_length:
+                    bar_chars[text_start + i] = ch
+            bar_str = "".join(bar_chars)
             cost = time.time() - start_time
             speed = round(checked / cost, 2)
             total_valid_text = f"| 全局累计:{total_valid[0]}/{max_total_find}" if max_total_find else f"| 全局累计:{total_valid[0]}"
-            print(f"📊 进度：{checked}/{total_task} | {pct:.2f}% | 本段存活：{len(valid_ip_ports)} | [{bar}] | 速度：{speed}个/秒 {total_valid_text}")
+            # 进度条套上颜色，结尾重置颜色
+            print(f"📊 进度：{checked}/{total_task} | {pct:.2f}% | 本段存活：{len(valid_ip_ports)} | [{bar_color}{bar_str}{RESET}] | 速度：{speed}个/秒 {total_valid_text}")
         if res:
             valid_ip_ports.append(res)
             total_valid[0] += 1
