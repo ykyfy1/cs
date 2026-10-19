@@ -215,7 +215,7 @@ async def scan_ip_port(ip_info, port, url_end, mode, max_find, semaphore, global
     stop_flag = False
     bar_length = 20
     start_time = time.time()
-    last_print_pct = 0 # 记录上次打印的5%档位
+    last_print_pct = 0 # 记录上次打印的1%档位
     async def task_wrapper(ip_port):
         nonlocal checked, stop_flag, last_print_pct
         if stop_flag or global_stop_event.is_set():
@@ -224,8 +224,8 @@ async def scan_ip_port(ip_info, port, url_end, mode, max_find, semaphore, global
         checked += 1
         pct = (checked / total_task)*100
         # ====== 每增加5%打印一次进度 ======
-        if int(pct) //5 > last_print_pct:
-            last_print_pct = int(pct) //5
+        if int(pct) //1 > last_print_pct:
+            last_print_pct = int(pct) //1
             fraction = checked / total_task
             # 自动切换颜色
             if fraction < 0.33:
