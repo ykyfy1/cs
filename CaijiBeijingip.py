@@ -10,7 +10,7 @@ import re
 SEMAPHORE_NUM = 20      # GitHub Action建议15~30；本地电脑可50~100
 TCP_TIMEOUT = 0.4       # TCP端口预检超时，越小扫描越快
 HTTP_TIMEOUT = 1.0      # udpxy http状态页超时
-PRINT_INTERVAL = 500     # 每100条打印一次进度，方便观察
+PRINT_INTERVAL = 1000     # 每1000条打印一次进度，和你之前一致
 DEBUG_MODE = False       # True=开启调试打印；False=关闭调试信息
 GEO_SEMAPHORE = 10      # 归属地查询并发，不要太高，防止ip-api限流
 GEO_ENABLE = True        # True开启归属地；False跳过归属地查询（不访问外网，稳定）
@@ -204,7 +204,7 @@ def count_total_tasks(ip_info, port, mode):
         b_list = parse_range(b_seg)
         c_list = parse_range(c_seg)
         d_list = parse_range(d_seg)
-        total = len(a_list)*len(b_list)*len(c_list)*len(d_seg)
+        total = len(a_list)*len(b_list)*len(c_list)*len(d_list)
     else:
         total = 256 * 255
     return total
@@ -224,7 +224,7 @@ async def scan_ip_port(ip_info, port, url_end, mode, max_find, semaphore, global
         checked += 1
         if checked % PRINT_INTERVAL == 0:
             pct = (checked / total_task)*100
-            filled = int(bar_length * checked // total_task)
+            filled = min(int(bar_length * checked // total_task), bar_length)
             bar = '=' * filled + '-' * (bar_length - filled)
             cost = time.time() - start_time
             speed = round(checked / cost, 2)
