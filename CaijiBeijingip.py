@@ -227,29 +227,37 @@ async def scan_ip_port(ip_info, port, url_end, mode, max_find, semaphore, global
         if int(pct) //5 > last_print_pct:
             last_print_pct = int(pct) //5
             fraction = checked / total_task
-            # 自动切换颜色
-            if fraction < 0.33:
-                bar_color = "\033[91m" #红色
-            elif fraction < 0.66:
-                bar_color = "\033[93m" #黄色
-            else:
-                bar_color = "\033[92m" #绿色
-            RESET = "\033[0m"
             filled_len = int(bar_length * checked / total_task)
             percent_text = f"{pct:.2f}%"
-            # 先填充色块
-            bar_chars = list("█" * filled_len + " " * (bar_length - filled_len))
-            # 把百分比文字居中放进进度条
+            # 底层完整进度条，不会被文字掏空
+            bar_base = "█" * filled_len + "░" * (bar_length - filled_len)
             text_start = (bar_length - len(percent_text)) // 2
-            for i, ch in enumerate(percent_text):
-                if text_start + i < bar_length:
-                    bar_chars[text_start + i] = ch
-            bar_str = "".join(bar_chars)
+
+            # 分割三段：前 | 文字区域 | 后
+            part_front = bar_base[:text_start]
+            part_text = percent_text
+            part_back = bar_base[text_start + len(percent_text):]
+
+            # 配色：背景+文字对比色
+            if fraction < 0.33:
+                bar_bg = "\033[41m"   # 红色背景
+                txt_color = "\033[97m" #白色文字
+            elif fraction < 0.66:
+                bar_bg = "\033[43m"   #黄色背景
+                txt_color = "\033[90m" #黑色文字
+            else:
+                bar_bg = "\033[42m"   #绿色背景
+                txt_color = "\033[90m" #黑色文字
+            RESET = "\033[0m"
+
+            # 拼接：整段背景色，文字叠加
+            bar_str = f"{bar_bg}{part_front}{txt_color}{part_text}{bar_bg}{part_back}{RESET}"
+
             cost = time.time() - start_time
             speed = round(checked / cost, 2)
             total_valid_text = f"| 全局累计:{total_valid[0]}/{max_total_find}" if max_total_find else f"| 全局累计:{total_valid[0]}"
             # flush=True 强制刷新日志
-            print(f"📊 进度：{checked}/{total_task} | {pct:.2f}% | 本段存活：{len(valid_ip_ports)} | [{bar_color}{bar_str}{RESET}] | 速度：{speed}个/秒 {total_valid_text}", flush=True)
+            print(f"📊 进度：{checked}/{total_task} | {pct:.2f}% | 本段存活：{len(valid_ip_ports)} | [{bar_str}] | 速度：{speed}个/秒 {total_valid_text}", flush=True)
         if res:
             valid_ip_ports.append(res)
             total_valid[0] += 1
@@ -339,7 +347,7 @@ async def multicast_province(config_file, semaphore, global_stop_event, total_va
         return (-max_c, *ip_nums, port_num)
     all_result = sorted(all_result, key=sort_key)
     os.makedirs("ip", exist_ok=True)
-    # ========== 重点修改：双文件输出 ==========
+    # ========== 双文件输出 ==========
     # 1.纯IP端口txt【测速程序读取，无任何额外内容，保证测速正常】
     with open(f"ip/good_{province}_{operator}_ip.txt", 'w', encoding='utf-8') as f:
         for item in all_result:
