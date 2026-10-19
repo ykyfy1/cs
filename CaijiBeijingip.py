@@ -5,6 +5,7 @@ import aiohttp
 import time
 import json
 import csv
+import re
 # ===================== 可配置参数 =====================
 SEMAPHORE_NUM = 20      # GitHub Action建议15~30；本地电脑可50~100
 TCP_TIMEOUT = 0.4       # TCP端口预检超时，越小扫描越快
@@ -19,7 +20,6 @@ MAX_TOTAL_FIND = 200
 # ======================================================
 # 归属地缓存，同一个IP只查一次
 geo_cache = {}
-
 def parse_range(s):
     """支持 单值、171-183连续范围、171,183逗号多选"""
     s = s.strip()
@@ -38,7 +38,6 @@ def parse_range(s):
         return list(range(int(start), int(end) + 1))
     else:
         return [int(s)]
-
 def read_config(config_file):
     print(f"读取设置文件：{config_file}")
     ip_configs = []
@@ -88,7 +87,6 @@ def read_config(config_file):
         print(f"读取文件错误: {e}")
         return None
     return ip_configs
-
 async def get_ip_geo(session, ip, sem):
     """异步查询IP归属地，后置执行，带缓存"""
     if ip in geo_cache:
@@ -107,7 +105,6 @@ async def get_ip_geo(session, ip, sem):
         pass
     geo_cache[ip] = "未知归属地"
     return "未知归属地"
-
 async def tcp_check(ip, port, timeout=TCP_TIMEOUT):
     """异步TCP端口预检"""
     try:
@@ -117,25 +114,25 @@ async def tcp_check(ip, port, timeout=TCP_TIMEOUT):
         return True
     except Exception:
         return False
-
 def parse_udpxy_status(html_text):
-    """解析udpxy status页面，提取信息"""
+    """解析udpxy status页面，提取纯净版本号、最大客户端、当前连接，自动忽略HTML标签"""
     info = {
         "version": "",
         "max_client": "",
         "current_conn": ""
     }
-    lines = html_text.splitlines()
-    for line in lines:
-        line = line.strip()
-        if "udpxy" in line.lower():
-            info["version"] = line
-        if "Max clients" in line:
-            info["max_client"] = line.split(":")[-1].strip()
-        if "Current clients" in line:
-            info["current_conn"] = line.split(":")[-1].strip()
+    # 提取版本号，兼容 udpxy v. 1.0 (Build 25) 这种格式
+    ver_match = re.search(r'udpxy\s+(v\.\s*[\d\.]+)\s*\(Build\s*(\d+)\)', html_text)
+    if ver_match:
+        info["version"] = f"{ver_match.group(1)} Build {ver_match.group(2)}"
+    # 不区分大小写，匹配英文
+    maxcli_match = re.search(r'max clients\s*:\s*(\d+)', html_text, re.IGNORECASE)
+    currcli_match = re.search(r'current clients\s*:\s*(\d+)', html_text, re.IGNORECASE)
+    if maxcli_match:
+        info["max_client"] = maxcli_match.group(1)
+    if currcli_match:
+        info["current_conn"] = currcli_match.group(1)
     return info
-
 async def check_udpxy(ip_port, url_end):
     ip, port = ip_port.split(":")
     tcp_open = await tcp_check(ip, port, timeout=TCP_TIMEOUT)
@@ -152,7 +149,7 @@ async def check_udpxy(ip_port, url_end):
                     text = await resp.text()
                     if "Multi stream daemon" in text or "udpxy status" in text:
                         status_info = parse_udpxy_status(text)
-                        print(f"✅ {url} | 最大客户端:{status_info['max_client']} | 当前连接:{status_info['current_conn']}")
+                        print(f"✅ {url} | 版本:{status_info['version']} | 最大客户端:{status_info['max_client']} | 当前连接:{status_info['current_conn']}")
                         return {
                             "ip_port": ip_port,
                             "ip": ip,
@@ -172,7 +169,6 @@ async def check_udpxy(ip_port, url_end):
         if DEBUG_MODE:
             print(f"[DEBUG] HTTP访问异常 {ip_port} : {str(e)}")
     return None
-
 def gen_ip_task(ip_info, port, mode):
     """生成器懒加载IP:port，不一次性全部载入内存"""
     if mode == "full":
@@ -197,7 +193,6 @@ def gen_ip_task(ip_info, port, mode):
         for x in range(256):
             for y in range(1, 256):
                 yield f"{a}.{b}.{x}.{y}:{port}"
-
 def count_total_tasks(ip_info, port, mode):
     """预计算总任务数量，用于进度百分比"""
     total = 0
@@ -209,11 +204,10 @@ def count_total_tasks(ip_info, port, mode):
         b_list = parse_range(b_seg)
         c_list = parse_range(c_seg)
         d_list = parse_range(d_seg)
-        total = len(a_list)*len(b_list)*len(c_list)*len(d_list)
+        total = len(a_list)*len(b_list)*len(c_list)*len(d_seg)
     else:
         total = 256 * 255
     return total
-
 async def scan_ip_port(ip_info, port, url_end, mode, max_find, semaphore, global_stop_event, total_valid, max_total_find):
     valid_ip_ports = []
     checked = 0
@@ -274,7 +268,6 @@ async def scan_ip_port(ip_info, port, url_end, mode, max_find, semaphore, global
     avg_speed = round(checked / total_cost,2)
     print(f"\n本段扫描结束，总共检测 {checked} 个，有效数量：{len(valid_ip_ports)}，平均速度 {avg_speed}个/秒")
     return valid_ip_ports
-
 async def multicast_province(config_file, semaphore, global_stop_event, total_valid, max_total_find):
     filename = os.path.basename(config_file)
     province, operator = filename.split('_')[:2]
@@ -297,7 +290,6 @@ async def multicast_province(config_file, semaphore, global_stop_event, total_va
             print(f"\n开始扫描  http://{ip_info}:{port}{url_end}")
         result = await scan_ip_port(ip_info, port, url_end, mode, max_find, semaphore, global_stop_event, total_valid, max_total_find)
         all_result.extend(result)
-
     # ====================== 扫描全部完成后，批量查询归属地 ======================
     if GEO_ENABLE and len(all_result) > 0:
         print(f"\n🔍 开始批量查询{len(all_result)}个IP的归属地...")
@@ -316,7 +308,6 @@ async def multicast_province(config_file, semaphore, global_stop_event, total_va
         print("\nℹ️ 归属地查询已关闭，全部填充为【未知归属地】")
         for item in all_result:
             item["geo"] = "未知归属地"
-
     # ==========排序逻辑：max_client降序，IP升序，端口升序==========
     def sort_key(item):
         try:
@@ -327,7 +318,6 @@ async def multicast_province(config_file, semaphore, global_stop_event, total_va
         port_num = int(item["port"])
         return (-max_c, *ip_nums, port_num)
     all_result = sorted(all_result, key=sort_key)
-
     os.makedirs("ip", exist_ok=True)
     # ========== 重点修改：双文件输出 ==========
     # 1.纯IP端口txt【测速程序读取，无任何额外内容，保证测速正常】
@@ -337,7 +327,7 @@ async def multicast_province(config_file, semaphore, global_stop_event, total_va
     # 2.完整信息txt【带归属地，归档查看】
     with open(f"ip/good_{province}_{operator}_full.txt", 'w', encoding='utf-8') as f:
         for item in all_result:
-            f.write(f"{item['ip_port']} | {item['geo']}\n")
+            f.write(f"{item['ip_port']} | 版本:{item['version']} | 最大客户端:{item['max_client']} | 当前连接:{item['current_conn']} | {item['geo']}\n")
     # 3.csv
     csv_path = f"ip/good_{province}_{operator}_result.csv"
     with open(csv_path, 'w', encoding='utf-8-sig', newline='') as f:
@@ -365,7 +355,6 @@ async def multicast_province(config_file, semaphore, global_stop_event, total_va
     print(f" -> json详情：{json_path}")
     print(f" -> IPTV组播文件：组播_{province}_{operator}.txt")
     return all_result
-
 async def main():
     semaphore = asyncio.Semaphore(SEMAPHORE_NUM)
     global_stop_event = asyncio.Event()
@@ -377,6 +366,5 @@ async def main():
             break
         await multicast_province(cfg, semaphore, global_stop_event, total_valid, MAX_TOTAL_FIND)
     print(f"✅ 全部扫描任务完成，总共累计收集有效源 {total_valid[0]} 个")
-
 if __name__ == "__main__":
     asyncio.run(main())
