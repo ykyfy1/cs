@@ -1,1 +1,11 @@
-[]
+[
+  {
+    "ip_port": "106.81.151.151:4022",
+    "ip": "106.81.151.151",
+    "port": "4022",
+    "version": "v. 1.0 Build 25",
+    "max_client": "",
+    "current_conn": "",
+    "geo": "重庆市 重庆市 | Chinanet"
+  }
+]
