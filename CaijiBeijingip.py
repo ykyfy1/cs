@@ -7,12 +7,13 @@ import json
 import csv
 import re
 # ===================== 可配置参数 =====================
-SEMAPHORE_NUM = 20      # GitHub Action建议15~30；本地电脑可50~100
+SEMAPHORE_NUM = 30      # GitHub Action稳定提速，兼顾速度
 TCP_TIMEOUT = 0.4       # TCP端口预检超时，越小扫描越快
 HTTP_TIMEOUT = 1.0      # udpxy http状态页超时
 DEBUG_MODE = False       # True=开启调试打印；False=关闭调试信息
-GEO_SEMAPHORE = 10      # 归属地查询并发，不要太高，防止ip-api限流
+GEO_SEMAPHORE = 8       # 归属地查询并发，降低防止ip-api 429限流
 GEO_ENABLE = True        # True开启归属地；False跳过归属地查询（不访问外网，稳定）
+PRINT_STEP_PCT = 5       # 进度条 5%打印一次
 # 全局总有效数上限：所有省份/网段累计收集到这么多就直接结束全部扫描
 # 想不限制就改成 None
 MAX_TOTAL_FIND = 200
@@ -215,7 +216,7 @@ async def scan_ip_port(ip_info, port, url_end, mode, max_find, semaphore, global
     stop_flag = False
     bar_length = 20
     start_time = time.time()
-    last_print_pct = 0 # 记录上次打印的1%档位
+    last_print_pct = -1
     async def task_wrapper(ip_port):
         nonlocal checked, stop_flag, last_print_pct
         if stop_flag or global_stop_event.is_set():
@@ -223,9 +224,10 @@ async def scan_ip_port(ip_info, port, url_end, mode, max_find, semaphore, global
         res = await check_udpxy(ip_port, url_end)
         checked += 1
         pct = (checked / total_task)*100
+        current_step = int(pct // PRINT_STEP_PCT) * PRINT_STEP_PCT
         # ====== 每增加5%打印一次进度 ======
-        if int(pct) //1 > last_print_pct:
-            last_print_pct = int(pct) //1
+        if current_step > last_print_pct:
+            last_print_pct = current_step
             fraction = checked / total_task
             # 自动切换颜色
             if fraction < 0.33:
@@ -237,9 +239,9 @@ async def scan_ip_port(ip_info, port, url_end, mode, max_find, semaphore, global
             RESET = "\033[0m"
             filled_len = int(bar_length * checked / total_task)
             percent_text = f"{pct:.2f}%"
-            # 先填充色块
+            # 先填充完整色块
             bar_chars = list("█" * filled_len + " " * (bar_length - filled_len))
-            # 把百分比文字居中放进进度条
+            # 把百分比文字居中放进进度条（叠加在色块上面）
             text_start = (bar_length - len(percent_text)) // 2
             for i, ch in enumerate(percent_text):
                 if text_start + i < bar_length:
