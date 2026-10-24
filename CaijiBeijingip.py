@@ -14,7 +14,7 @@ HTTP_TIMEOUT = 1.0      # udpxy http状态页超时
 DEBUG_MODE = False       # True=开启调试打印；False=关闭调试信息
 GEO_SEMAPHORE = 10      # 归属地查询并发，不要太高，防止ip-api限流
 GEO_ENABLE = True        # True开启归属地；False跳过归属地查询（不访问外网，稳定）
-PRINT_STEP_PERCENT = 5   # 每5%打印一次进度条
+PRINT_STEP_PERCENT = 2   # 每5%打印一次进度条
 BAR_LENGTH = 40          # 进度条总长度
 
 # ANSI颜色（GitHub Actions支持）
@@ -55,9 +55,12 @@ def expand_ip_range(line):
     返回列表 [(ip, port, flag)]
     """
     line = line.strip()
-    pat = re.compile(r"^([\d\-]+(?:\.[\d\-]+)*):(\d+),(\d+)$")
+    # 重写正则：分割 ip部分 : 端口 , flag
+    pat = re.compile(r"^(.*):(\d+),(\d+)$")
     m = pat.match(line)
     if not m:
+        if DEBUG_MODE:
+            print(f"[DEBUG] 该行不匹配range正则: {line}")
         return []
     ip_part = m.group(1)
     port = int(m.group(2))
@@ -68,12 +71,19 @@ def expand_ip_range(line):
     while len(parts) < 4:
         parts.append("0-255")
     if len(parts) > 4:
+        if DEBUG_MODE:
+            print(f"[DEBUG] 段数超过4段跳过: {line}")
         return []
 
-    r0 = parse_octet(parts[0])
-    r1 = parse_octet(parts[1])
-    r2 = parse_octet(parts[2])
-    r3 = parse_octet(parts[3])
+    try:
+        r0 = parse_octet(parts[0])
+        r1 = parse_octet(parts[1])
+        r2 = parse_octet(parts[2])
+        r3 = parse_octet(parts[3])
+    except Exception as e:
+        if DEBUG_MODE:
+            print(f"[DEBUG] 解析段失败 {line} err:{e}")
+        return []
 
     res = []
     for a in range(r0[0], r0[1]+1):
@@ -82,6 +92,8 @@ def expand_ip_range(line):
                 for d in range(r3[0], r3[1]+1):
                     ip = f"{a}.{b}.{c}.{d}"
                     res.append((ip, port, flag))
+    if DEBUG_MODE:
+        print(f"[DEBUG] {line} 展开数量:{len(res)}")
     return res
 
 
@@ -186,6 +198,8 @@ async def main():
                 line = line.strip()
                 if not line or line.startswith("#"):
                     continue
+                if DEBUG_MODE:
+                    print(f"[DEBUG] 读取行：{line}")
                 # 优先解析 a-b.c-d:e,flag 范围格式
                 expanded = expand_ip_range(line)
                 if expanded:
@@ -197,7 +211,11 @@ async def main():
                     try:
                         port = int(p)
                         targets.append((ip.strip(), port, ""))
+                        if DEBUG_MODE:
+                            print(f"[DEBUG] 识别为旧ip:port {ip}:{port}")
                     except:
+                        if DEBUG_MODE:
+                            print(f"[DEBUG] 旧格式解析失败 {line}")
                         continue
     total_tasks = len(targets)
     print(f"总共扫描任务：{total_tasks}", flush=True)
