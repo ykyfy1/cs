@@ -14,7 +14,7 @@ HTTP_TIMEOUT = 1.0      # udpxy http状态页超时
 DEBUG_MODE = False       # True=开启调试打印；False=关闭调试信息
 GEO_SEMAPHORE = 10      # 归属地查询并发，不要太高，防止ip-api限流
 GEO_ENABLE = True        # True开启归属地；False跳过归属地查询（不访问外网，稳定）
-PRINT_STEP_PERCENT = 2   # 每5%打印一次进度条
+PRINT_STEP_PERCENT = 5   # 每5%打印一次进度条
 BAR_LENGTH = 40          # 进度条总长度
 
 # ANSI颜色（GitHub Actions支持）
