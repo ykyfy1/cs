@@ -13,7 +13,7 @@ HTTP_TIMEOUT = 1.0      # udpxy http状态页超时
 DEBUG_MODE = False       # True=开启调试打印；False=关闭调试信息
 GEO_SEMAPHORE = 8       # 归属地查询并发，降低防止ip-api 429限流
 GEO_ENABLE = True        # True开启归属地；False跳过归属地查询（不访问外网，稳定）
-PRINT_STEP_PCT = 1       # 进度条 5%打印一次
+PRINT_STEP_PCT = 5       # 进度条 5%打印一次
 # 全局总有效数上限：所有省份/网段累计收集到这么多就直接结束全部扫描
 # 想不限制就改成 None
 MAX_TOTAL_FIND = 200
