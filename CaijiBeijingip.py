@@ -8,8 +8,8 @@ import csv
 import re
 
 # ===================== 可配置参数 =====================
-SEMAPHORE_NUM = 35      # GA环境，30~35比较稳
-TCP_TIMEOUT = 0.35      # 稍微缩小超时，提速，不要低于0.3
+SEMAPHORE_NUM = 35      # 本地用35，GA改成22
+TCP_TIMEOUT = 0.35      # 本地0.35，GA改成0.4
 HTTP_TIMEOUT = 1.0
 DEBUG_MODE = False
 GEO_SEMAPHORE = 8
@@ -19,6 +19,20 @@ QUEUE_SIZE = SEMAPHORE_NUM * 2
 MAX_TOTAL_FIND = 200
 # ======================================================
 geo_cache = {}
+
+
+def format_seconds(sec):
+    """格式化秒数为 时:分:秒，用于ETA剩余预估时间"""
+    sec = max(sec, 0)
+    h = int(sec // 3600)
+    m = int((sec % 3600) // 60)
+    s = sec % 60
+    if h > 0:
+        return f"{h}h{m}m{s:.1f}s"
+    elif m > 0:
+        return f"{m}m{s:.1f}s"
+    else:
+        return f"{s:.1f}s"
 
 
 def parse_range(s):
@@ -39,20 +53,6 @@ def parse_range(s):
         return list(range(int(start), int(end) + 1))
     else:
         return [int(s)]
-
-
-def format_seconds(sec):
-    """格式化秒数为 时:分:秒，用于ETA剩余时间"""
-    sec = max(sec,0)
-    h = int(sec // 3600)
-    m = int((sec % 3600) // 60)
-    s = sec % 60
-    if h > 0:
-        return f"{h}h{m}m{s:.1f}s"
-    elif m>0:
-        return f"{m}m{s:.1f}s"
-    else:
-        return f"{s:.1f}s"
 
 
 def read_config(config_file):
@@ -412,7 +412,7 @@ async def main():
     semaphore = asyncio.Semaphore(SEMAPHORE_NUM)
     global_stop_event = asyncio.Event()
     total_valid = [0]
-    # 全局复用http连接池，已移除reuse_address
+    # 全局复用http连接池 + DNS缓存优化，减少重复DNS查询，小幅提速
     connector = aiohttp.TCPConnector(limit=SEMAPHORE_NUM, ttl_dns_cache=300)
     async with aiohttp.ClientSession(connector=connector) as session:
         config_files = glob.glob(os.path.join('ip', '*_config.txt'))
