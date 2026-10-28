@@ -276,11 +276,11 @@ async def scan_ip_port(ip_info, port, url_end, mode, max_find, semaphore, sessio
                 fraction = checked / total_task
                 # 三色逻辑：0~33%绿，33~66%黄，66~100%红
                 if fraction < 0.33:
-                    bar_color = "\033[92m" #绿色
+                    bar_color = "\033[91m" #红色
                 elif fraction < 0.66:
                     bar_color = "\033[93m" #黄色
                 else:
-                    bar_color = "\033[91m" #红色
+                    bar_color = "\033[92m" #绿色
                 RESET = "\033[0m"
                 filled_len = int(bar_length * checked / total_task)
                 percent_text = f"{pct:.2f}%"
