@@ -14,7 +14,7 @@ HTTP_TIMEOUT = 1.0
 DEBUG_MODE = False
 GEO_SEMAPHORE = 8
 GEO_ENABLE = True
-PRINT_STEP_PCT = 1
+PRINT_STEP_PCT = 2
 QUEUE_SIZE = SEMAPHORE_NUM * 2
 MAX_TOTAL_FIND = 200
 # ======================================================
