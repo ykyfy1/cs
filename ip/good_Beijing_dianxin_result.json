@@ -1,47 +1,56 @@
 [
   {
-    "ip_port": "58.32.41.75:4022",
-    "ip": "58.32.41.75",
+    "ip_port": "14.19.158.58:4022",
+    "ip": "14.19.158.58",
     "port": "4022",
     "version": "v. 1.0 Build 25",
     "max_client": "",
     "current_conn": "",
-    "geo": "上海市 上海 | CHINANET-SH"
+    "geo": "广东 广州市 | Chinanet"
   },
   {
-    "ip_port": "58.37.164.49:4000",
-    "ip": "58.37.164.49",
-    "port": "4000",
-    "version": "v. 1.0 Build 25",
-    "max_client": "",
-    "current_conn": "",
-    "geo": "上海市 上海 | China Telecom (Group)"
-  },
-  {
-    "ip_port": "58.38.21.143:4022",
-    "ip": "58.38.21.143",
+    "ip_port": "14.145.187.242:4022",
+    "ip": "14.145.187.242",
     "port": "4022",
     "version": "v. 1.0 Build 25",
     "max_client": "",
     "current_conn": "",
-    "geo": "上海市 上海 | China Telecom (Group)"
+    "geo": "广东 广州市 | Chinanet"
   },
   {
-    "ip_port": "58.41.7.12:4022",
-    "ip": "58.41.7.12",
+    "ip_port": "14.154.187.87:4022",
+    "ip": "14.154.187.87",
     "port": "4022",
     "version": "v. 1.0 Build 25",
     "max_client": "",
     "current_conn": "",
-    "geo": "上海市 上海 | China Telecom (Group)"
+    "geo": "广东 深圳 | Chinanet"
   },
   {
-    "ip_port": "58.41.25.136:4022",
-    "ip": "58.41.25.136",
+    "ip_port": "14.155.183.22:8888",
+    "ip": "14.155.183.22",
+    "port": "8888",
+    "version": "v. 1.0 Build 25",
+    "max_client": "",
+    "current_conn": "",
+    "geo": "广东 深圳 | Chinanet"
+  },
+  {
+    "ip_port": "14.155.244.133:4022",
+    "ip": "14.155.244.133",
     "port": "4022",
     "version": "v. 1.0 Build 25",
     "max_client": "",
     "current_conn": "",
-    "geo": "上海市 上海 | China Telecom (Group)"
+    "geo": "广东 深圳 | Chinanet"
+  },
+  {
+    "ip_port": "14.212.133.39:4022",
+    "ip": "14.212.133.39",
+    "port": "4022",
+    "version": "v. 1.0 Build 25",
+    "max_client": "",
+    "current_conn": "",
+    "geo": "广东 佛山市 | Chinanet"
   }
 ]
