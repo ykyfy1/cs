@@ -21,8 +21,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y masscan yt-dlp sed nmap || true
-          masscan --version
-          nmap --version
+          masscan --version || true
+          nmap --version || true
 
       - name: 安装python依赖
         run: pip install aiohttp
