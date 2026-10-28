@@ -41,6 +41,20 @@ def parse_range(s):
         return [int(s)]
 
 
+def format_seconds(sec):
+    """格式化秒数为 时:分:秒，用于ETA剩余时间"""
+    sec = max(sec,0)
+    h = int(sec // 3600)
+    m = int((sec % 3600) // 60)
+    s = sec % 60
+    if h > 0:
+        return f"{h}h{m}m{s:.1f}s"
+    elif m>0:
+        return f"{m}m{s:.1f}s"
+    else:
+        return f"{s:.1f}s"
+
+
 def read_config(config_file):
     print(f"读取设置文件：{config_file}", flush=True)
     ip_configs = []
@@ -280,8 +294,11 @@ async def scan_ip_port(ip_info, port, url_end, mode, max_find, semaphore, sessio
                 bar_str = "".join(bar_chars)
                 cost = time.time() - start_time
                 speed = round(checked / cost, 2)
+                remain_count = total_task - checked
+                eta_sec = remain_count / speed if speed > 0 else 0
+                eta_str = format_seconds(eta_sec)
                 total_valid_text = f"| 全局累计:{total_valid[0]}/{max_total_find}" if max_total_find else f"| 全局累计:{total_valid[0]}"
-                print(f"📊 进度：{checked}/{total_task} | {pct:.2f}% | 本段存活：{len(valid_ip_ports)} | [{bar_color}{bar_str}{RESET}] | 速度：{speed}个/秒 {total_valid_text}", flush=True)
+                print(f"📊 进度：{checked}/{total_task} | {pct:.2f}% | 本段存活：{len(valid_ip_ports)} | [{bar_color}{bar_str}{RESET}] | 速度：{speed}个/秒 | ETA:{eta_str} {total_valid_text}", flush=True)
             if res:
                 valid_ip_ports.append(res)
                 total_valid[0] += 1
@@ -395,7 +412,7 @@ async def main():
     semaphore = asyncio.Semaphore(SEMAPHORE_NUM)
     global_stop_event = asyncio.Event()
     total_valid = [0]
-    # 全局复用http连接池
+    # 全局复用http连接池，已移除reuse_address
     connector = aiohttp.TCPConnector(limit=SEMAPHORE_NUM, ttl_dns_cache=300)
     async with aiohttp.ClientSession(connector=connector) as session:
         config_files = glob.glob(os.path.join('ip', '*_config.txt'))
