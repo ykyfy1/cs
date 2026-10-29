@@ -1,56 +1,29 @@
 [
   {
-    "ip_port": "14.19.158.58:4022",
-    "ip": "14.19.158.58",
-    "port": "4022",
-    "version": "v. 1.0 Build 25",
-    "max_client": "",
-    "current_conn": "",
-    "geo": "广东 广州市 | Chinanet"
-  },
-  {
-    "ip_port": "14.145.187.242:4022",
-    "ip": "14.145.187.242",
-    "port": "4022",
-    "version": "v. 1.0 Build 25",
-    "max_client": "",
-    "current_conn": "",
-    "geo": "广东 广州市 | Chinanet"
-  },
-  {
-    "ip_port": "14.154.187.87:4022",
-    "ip": "14.154.187.87",
-    "port": "4022",
-    "version": "v. 1.0 Build 25",
-    "max_client": "",
-    "current_conn": "",
-    "geo": "广东 深圳 | Chinanet"
-  },
-  {
-    "ip_port": "14.155.183.22:8888",
-    "ip": "14.155.183.22",
+    "ip_port": "121.231.210.30:8888",
+    "ip": "121.231.210.30",
     "port": "8888",
     "version": "v. 1.0 Build 25",
     "max_client": "",
     "current_conn": "",
-    "geo": "广东 深圳 | Chinanet"
+    "geo": "江苏 南京 | China Telecom"
   },
   {
-    "ip_port": "14.155.244.133:4022",
-    "ip": "14.155.244.133",
-    "port": "4022",
+    "ip_port": "121.237.244.247:8888",
+    "ip": "121.237.244.247",
+    "port": "8888",
     "version": "v. 1.0 Build 25",
     "max_client": "",
     "current_conn": "",
-    "geo": "广东 深圳 | Chinanet"
+    "geo": "江苏 南京 | Chinanet"
   },
   {
-    "ip_port": "14.212.133.39:4022",
-    "ip": "14.212.133.39",
-    "port": "4022",
+    "ip_port": "121.237.245.192:8888",
+    "ip": "121.237.245.192",
+    "port": "8888",
     "version": "v. 1.0 Build 25",
     "max_client": "",
     "current_conn": "",
-    "geo": "广东 佛山市 | Chinanet"
+    "geo": "江苏 南京 | Chinanet"
   }
 ]
