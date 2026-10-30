@@ -60,7 +60,7 @@ mkdir -p ip txt template
 case $city_choice in
     1)
         city="Beijing_dianxin"
-        stream="rtp/239.77.0.217:5146"
+        stream="rtp/239.94.0.103:5140"
         ;;
     0)
         # 修复：删掉{1}，直接写1，避免GA bash解析异常
