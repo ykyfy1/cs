@@ -19,12 +19,10 @@ jobs:
         with:
           python-version: 3.11
 
-      - name: 安装系统依赖(masscan,nmap,bc等)
+      - name: 安装系统依赖(bc,sed等)
         run: |
           sudo apt-get update
-          sudo apt-get install -y masscan yt-dlp sed nmap bc || true
-          masscan --version || true
-          nmap --version || true
+          sudo apt-get install -y sed bc || true
           bc --version || true
 
       - name: 安装python依赖
@@ -46,18 +44,24 @@ jobs:
       # 新增：清理txt目录超过7天的旧结果文件
       - name: 清理txt目录过期结果文件
         run: |
-          # 修改 +7 即可调整保留天数
           find txt -type f -name "*.txt" -mtime +7 -delete
           echo "✅ 已删除txt目录下7天前的txt结果文件"
 
-      # =========【合并：Python采集 + bash测速 在同一个step，共享文件系统】=========
-      - name: 获取源 + 测速处理
+      # =========【多城市版本 + 文件保护：失败不覆盖zubo.txt】=========
+      - name: 获取源 + 多城市测速处理
         run: |
           cd $GITHUB_WORKSPACE
           python ./CaijiBeijingip.py
           cat zubo.txt > zubo_bf.txt
-          bash ./CaijiBeijingip.sh
-          cat txt/Beijing_dianxin.txt > zubo.txt
+          bash ./CaijiBeijingip.sh 0
+          # 校验合并结果文件，存在且非空才覆盖zubo.txt
+          MERGE_FILE="txt/all_city_sorted.txt"
+          if [ -f "$MERGE_FILE" ] && [ -s "$MERGE_FILE" ]; then
+            echo "✅ 全局合并文件正常，更新zubo.txt"
+            cat "$MERGE_FILE" > zubo.txt
+          else
+            echo "⚠️ 警告：$MERGE_FILE 不存在或者是空文件！不覆盖zubo.txt，保留旧源！"
+          fi
 
       - name: 上传扫描结果&日志到Artifact
         uses: actions/upload-artifact@v4
@@ -69,16 +73,22 @@ jobs:
             ip/
           retention-days: 7
 
-      - name: 更新源（有变更才提交）
+      - name: 更新源（文件变更才提交，无变化直接跳过）
         run: |
           cd $GITHUB_WORKSPACE
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
-          git add .
-          # 判断是否有文件改动，有改动才commit
-          if [[ -n $(git status --porcelain) ]]; then
-            git commit -m "🤖 GitHub Actions自动更新源 ${{ github.run_id }}"
-            git push
+
+          # 对比新zubo.txt 和备份 zubo_bf.txt，内容相同则标记无需提交
+          if diff -q zubo.txt zubo_bf.txt >/dev/null ; then
+            echo "ℹ️ 新源与旧源内容完全一致，无需提交，直接结束"
           else
-            echo "✅ 本次扫描无新结果，跳过git提交"
+            echo "✅ 源文件检测到更新，准备提交"
+            git add .
+            if [[ -n $(git status --porcelain) ]]; then
+              git commit -m "🤖 GitHub Actions自动更新多城市源 ${{ github.run_id }}"
+              git push
+            else
+              echo "✅ git无变更，跳过提交"
+            fi
           fi
