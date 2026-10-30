@@ -6,12 +6,14 @@ on:
 jobs:
   run-script:
     runs-on: ubuntu-latest
+    # 可选：设置job最长运行时间，防止卡死
+    timeout-minutes: 60
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v3
         with:
-          fetch-depth: 0   
-      
+          fetch-depth: 0
+
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
@@ -26,27 +28,60 @@ jobs:
 
       - name: 安装python依赖
         run: pip install aiohttp
- 
+
       - name: Install python requirements
         run: |
           pip install -r requirements.txt
+
+      # 提前创建脚本需要的目录
+      - name: 创建输出目录
+        run: |
+          mkdir -p txt logs ip template
+
+      # 新增：自动清理7天前的旧日志
+      - name: 清理7天前旧日志
+        run: |
+          find logs -type f -name "scan_*.log" -mtime +7 -delete
+          echo "✅ 已删除logs目录下7天前的日志文件"
+
+      # 新增：清理txt目录超过7天的旧结果文件
+      - name: 清理txt目录过期结果文件
+        run: |
+          # 修改 +7 即可调整保留天数
+          find txt -type f -name "*.txt" -mtime +7 -delete
+          echo "✅ 已删除txt目录下7天前的txt结果文件"
 
       - name: 获取源
         run: |
           cd $GITHUB_WORKSPACE
           python ./CaijiBeijingip.py
-          
+
       - name: 测试源
         run: |
           cd $GITHUB_WORKSPACE
           cat zubo.txt > zubo_bf.txt
           bash ./CaijiBeijingip.sh
           cat txt/Beijing_dianxin.txt > zubo.txt
-          
-      - name: 更新源
+
+      - name: 上传扫描结果&日志到Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: scan-result-${{ github.run_id }}
+          path: |
+            txt/
+            logs/
+          retention-days: 7
+
+      - name: 更新源（有变更才提交）
         run: |
+          cd $GITHUB_WORKSPACE
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
           git add .
-          git commit -m "更新源"
-          git push
+          # 判断是否有文件改动，有改动才commit
+          if [[ -n $(git status --porcelain) ]]; then
+            git commit -m "🤖 GitHub Actions自动更新源 ${{ github.run_id }}"
+            git push
+          else
+            echo "✅ 本次扫描无新结果，跳过git提交"
+          fi
