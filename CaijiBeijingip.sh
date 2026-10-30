@@ -18,15 +18,25 @@ LOG_FILE="${LOG_DIR}/scan_$(date +%Y%m%d_%H%M%S).log"
 
 # 临时文件列表，用于信号捕获清理
 TMP_FILE_LIST=()
-# 捕获信号：Ctrl+C、脚本崩溃、程序终止，触发清理函数
+
+# ========= 修复cleanup函数：区分异常终止/正常结束 =========
+# $1=1 异常退出；$1=0 正常跑完当前城市
 cleanup() {
-    echo -e "\n⚠️  检测到脚本退出，开始清理临时文件..." | tee -a "${LOG_FILE}"
-    rm -f tmp_good_ip zubo_*.tmp tmp_all.txt "${TMP_FILE_LIST[@]}"
-    echo "✅ 临时文件清理完成" | tee -a "${LOG_FILE}"
-    exit
+    local exit_type="$1"
+    if [ "$exit_type" -eq 1 ];then
+        echo -e "\n⚠️  检测到脚本异常退出，开始清理临时文件..." | tee -a "${LOG_FILE}"
+        rm -f tmp_good_ip zubo_*.tmp tmp_all.txt "${TMP_FILE_LIST[@]}"
+        echo "✅ 临时文件清理完成" | tee -a "${LOG_FILE}"
+        exit 1
+    else
+        # 正常跑完单个城市：清理当前城市临时文件，不exit，返回主循环继续跑下一个城市
+        rm -f tmp_good_ip zubo_*.tmp tmp_all.txt
+        log_print "✅ 当前城市临时文件清理完毕，准备进入下一个城市"
+    fi
 }
-# 注册捕获信号: SIGINT(Ctrl+C), SIGTERM(进程被杀), SIGHUP
-trap cleanup SIGINT SIGTERM SIGHUP
+
+# 捕获异常信号: SIGINT(Ctrl+C), SIGTERM(进程被杀), SIGHUP
+trap 'cleanup 1' SIGINT SIGTERM SIGHUP
 
 # 自定义打印函数，同时输出控制台+写入日志
 log_print(){
@@ -39,13 +49,12 @@ log_print(){
 
 if [ $# -eq 0 ]; then
   log_print "开始测试······"
-  log_print "在5秒内输入1~4可选择城市"
-  log_print "请选择城市："
-  echo "1. 北京（Beijing_dianxin）"
-  read -t 5 -p "超时未输入,将按默认设置测试" city_choice
+  log_print "在5秒内输入城市编号，0=批量跑全部城市"
+  log_print "1:北京  2:上海  3:广州"
+  read -t 5 -p "超时未输入,默认批量跑全部城市(0)" city_choice
 
   if [ -z "$city_choice" ]; then
-      log_print "未检测到输入,默认测试全部"
+      log_print "未检测到输入，批量执行全部城市"
       city_choice=0
   fi
 
@@ -56,34 +65,93 @@ fi
 # 自动创建目录防止报错
 mkdir -p ip txt template
 
-# 设置城市和相应的stream
+# ========= 多城市配置，自行修改stream组播地址 =========
 case $city_choice in
     1)
         city="Beijing_dianxin"
         stream="rtp/239.94.0.103:5140"
         ;;
+    2)
+        city="Shanghai_dianxin"
+        stream="rtp/替换成上海组播地址"
+        ;;
+    3)
+        city="Guangzhou_dianxin"
+        stream="rtp/替换成广州组播地址"
+        ;;
     0)
-        # 修复：删掉{1}，直接写1，避免GA bash解析异常
-        for option in 1; do
+        # 批量入口：串行依次跑1北京,2上海,3广州
+        for option in 1 2 3; do
           bash "$0" "$option"
         done
-        exit 0
+        log_print "==================== 所有城市测速全部完成，开始全局合并排序 ===================="
         ;;
     *)
         log_print "⚠️ 城市编号【$city_choice】未配置，直接退出"
-        exit 0
+        cleanup 1
         ;;
 esac
 
-# =========【新增防护：city为空直接退出】=========
+# 如果是批量入口(0)，执行完循环就进入全局合并逻辑
+if [ "$city_choice" -eq 0 ];then
+    #--------合并所有城市txt文件 + 按带宽降序，IP:端口相同才去重，同IP不同端口保留，保留前MERGE_TOP_COUNT条--------
+    merge_output="txt/all_city_sorted.txt"
+    > $merge_output
+
+    cat txt/*.txt | awk -v top="$MERGE_TOP_COUNT" '
+    function getnum(s){
+        if(s ~ /M/){return s*1024}
+        if(s ~ /k/){return s}
+        return 0
+    }
+    {
+        rate=""
+        for(i=1;i<=NF;i++){
+            if($i ~ /^[0-9]+\.?[0-9]*[kM]$/){
+                rate=$i
+                break
+            }
+        }
+        # 提取ip:port作为唯一key
+        ip_port=""
+        for(i=1;i<=NF;i++){
+            if($i ~ /[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+/){
+                ip_port=$i
+                break
+            }
+        }
+        num=getnum(rate)
+        print num, ip_port, $0
+    }' | sort -k1 -nr | awk -v top="$MERGE_TOP_COUNT" '
+    BEGIN{count=0}
+    {
+        key=$2
+        if( !seen[key]++ ){
+            if(count < top){
+                print substr($0, index($0,$3))
+                count++
+            }
+        }
+    }' > $merge_output
+
+    log_print "✅ 全局合并完成，IP+端口完全相同才去重，同IP不同端口保留，只保留最快前${MERGE_TOP_COUNT}条：$merge_output"
+    # ============新增：打印全局合并后的总排序列表到日志============
+    log_print "==================== 全局合并【从快到慢总清单】 ===================="
+    cat "${merge_output}" | tee -a "${LOG_FILE}"
+    log_print "====================================================================="
+
+    log_print "📝 本次扫描日志保存至：${LOG_FILE}"
+    exit 0
+fi
+
+# =========【单城市测速逻辑开始】=========
 if [ -z "$city" ];then
     log_print "❌ city变量为空，退出本次扫描"
-    exit 0
+    cleanup 1
 fi
 
 # 使用城市名作为默认文件名，格式为 CityName.ip
 time=$(date +%m%d%H%M)
-# ========== 核心改动：直接读取Python已经扫描好的存活IP文件 ==========
 good_ip=ip/good_${city}_ip.txt
 result_ip=ip/result_${city}_ip.txt
 speed_log=speedtest_${city}_$time.log
@@ -94,8 +162,8 @@ log_print "从 '${good_ip}' 读取Python预扫描完成的存活IP，跳过端�
 
 # =========【文件防护】=========
 if [ ! -f "$good_ip" ];then
-    log_print "❌ 错误：存活IP文件 $good_ip 不存在！退出"
-    exit 0
+    log_print "❌ 错误：存活IP文件 $good_ip 不存在！跳过该城市"
+    cleanup 0
 fi
 
 # 去重、清除空行
@@ -105,21 +173,19 @@ mv tmp_filter_ip "$good_ip"
 lines=$(wc -l < "$good_ip")
 log_print "获取存活IP总数：$lines"
 
-# ========== 新增调试：打印全部待测速IP列表 ==========
+# ========== 调试：打印全部待测速IP列表 ==========
 log_print "===== 调试：本次待测速IP列表 ====="
 cat "$good_ip" | tee -a "${LOG_FILE}"
 log_print "=================================="
-# ====================================================
 
 if [ "$lines" -eq 0 ];then
     log_print "⚠️ 存活IP文件为空，跳过当前城市扫描"
-    exit 0
+    cleanup 0
 fi
 
-# ====================== 【直接进入测速，删除了sh内部nc端口探测整块代码】======================
 log_print "端口探测由Python脚本提前完成，开始并行测速，并发数: $SPEED_CONCURRENT，测速重试次数:$SPEED_RETRY"
 
-# 并行测速函数【新版：curl -w 直接获取下载速度，稳定输出】
+# 并行测速函数
 speed_test(){
     local ip="$1"
     local idx="$2"
@@ -128,17 +194,14 @@ speed_test(){
     local raw_speed=""
     # 测速重试循环
     for ((r=0; r<=SPEED_RETRY; r++)); do
-        # -w %{speed_download} 直接输出下载字节速度，丢弃stderr
         raw_speed=$(curl --connect-timeout 3 --max-time 15 -o /dev/null -w "%{speed_download}" "$url" 2>/dev/null)
-        # 判断是否获取到有效数字
         if [[ "$raw_speed" =~ ^[0-9\.]+$ && $(echo "$raw_speed > 0" | bc) -eq 1 ]];then
             break
         fi
     done
 
-    # =========核心逻辑：只过滤0，大于0全部写入日志=========
+    # 只过滤0，大于0全部写入日志
     if [[ "$raw_speed" =~ ^[0-9\.]+$ && $(echo "$raw_speed > 0" | bc) -eq 1 ]]; then
-        # 转换单位 B/s → KB / MB
         if (( $(echo "$raw_speed >= 1048576" | bc -l) )); then
             a=$(echo "scale=2; $raw_speed / 1048576" | bc)M
         elif (( $(echo "$raw_speed >= 1024" | bc -l) )); then
@@ -146,12 +209,10 @@ speed_test(){
         else
             a="${raw_speed}B"
         fi
-        # 写入日志文件 + 打印到控制台
         local line="第$idx/$total个：$ip    $a"
         echo "$line" >> $speed_log
         log_print "$line"
     else
-        # 0B仅控制台输出，**不写入speed_log，不会参与排序**
         log_print "第$idx/$total个：$ip    0B 已跳过"
     fi
 }
@@ -161,9 +222,7 @@ total_good=$lines
 while read line; do
     i=$((i + 1))
     ip=$line
-    # 后台跑测速任务，控制并发
     speed_test "$ip" "$i" "$total_good" &
-    # 测速阶段进度打印
     if [ $((i % PROGRESS_STEP)) -eq 0 ];then
         wait
         pct=$(( i * 100 / total_good ))
@@ -180,7 +239,6 @@ log_print "测速结果排序"
 # 转换k/M为数值用于排序：k=千，M=兆，统一转成KB排序
 awk '
 {
-    # 从行内提取IP和速率
     for(i=1;i<=NF;i++){
         if ($i ~ /[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+/) ip=$i
         if ($i ~ /^[0-9]+\.?[0-9]*[kM]$/) speed=$i
@@ -193,62 +251,22 @@ awk '
 }
 ' $speed_log | sort -k1 -nr | awk '{print $2"  "$3}' > $result_ip
 
+# 打印当前城市排序后的速度列表
+log_print "========= ${city} 排序完成，从快到慢列表 ========="
+cat "${result_ip}" | tee -a "${LOG_FILE}"
+log_print "=================================================="
+
 # ========== 单个城市取前 CITY_TOP_COUNT 条，生成城市独立txt ==========
 > tmp_all.txt
 for ((n=1; n<=CITY_TOP_COUNT; n++));do
     ip=$(awk -v line="$n" 'NR==line{print $2}' $result_ip)
     if [ -z "$ip" ];then continue;fi
-    # 改用 | 做sed分隔符，避免IP和/冲突
     sed "s|ipipip|$ip|g" template/template_${city}.txt >> tmp_all.txt
 done
 # 过滤包含连续三个斜杠的脏行 http:///
 grep -v '///' tmp_all.txt > "txt/${city}.txt"
-rm -f tmp_all.txt $good_ip $speed_log $result_ip
+rm -f tmp_all.txt $speed_log $result_ip
 log_print "${city} 测试完成，保留前${CITY_TOP_COUNT}条，生成文件：'txt/${city}.txt'"
 
-
-#--------合并所有城市txt文件 + 按带宽降序，IP:端口相同才去重，同IP不同端口保留，保留前MERGE_TOP_COUNT条--------
-merge_output="txt/all_city_sorted.txt"
-> $merge_output
-
-cat txt/*.txt | awk -v top="$MERGE_TOP_COUNT" '
-function getnum(s){
-    if(s ~ /M/){return s*1024}
-    if(s ~ /k/){return s}
-    return 0
-}
-{
-    rate=""
-    for(i=1;i<=NF;i++){
-        if($i ~ /^[0-9]+\.?[0-9]*[kM]$/){
-            rate=$i
-            break
-        }
-    }
-    # 提取ip:port作为唯一key
-    ip_port=""
-    for(i=1;i<=NF;i++){
-        if($i ~ /[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+/){
-            ip_port=$i
-            break
-        }
-    }
-    num=getnum(rate)
-    print num, ip_port, $0
-}' | sort -k1 -nr | awk -v top="$MERGE_TOP_COUNT" '
-BEGIN{count=0}
-{
-    key=$2
-    if( !seen[key]++ ){
-        if(count < top){
-            print substr($0, index($0,$3))
-            count++
-        }
-    }
-}' > $merge_output
-
-log_print "✅ 全部城市合并完成，IP+端口完全一致才去重，同IP不同端口保留，只保留最快前${MERGE_TOP_COUNT}条：$merge_output"
-log_print "📝 本次扫描日志保存至：${LOG_FILE}"
-
-# 正常执行完毕也执行一次清理
-cleanup
+# 正常结束，调用cleanup，不退出脚本，返回批量循环
+cleanup 0
