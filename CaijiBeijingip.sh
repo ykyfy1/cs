@@ -119,23 +119,36 @@ fi
 # ====================== 【直接进入测速，删除了sh内部nc端口探测整块代码】======================
 log_print "端口探测由Python脚本提前完成，开始并行测速，并发数: $SPEED_CONCURRENT，测速重试次数:$SPEED_RETRY"
 
-# 并行测速函数（增加测速重试逻辑）
+# 并行测速函数【新版：curl -w 直接获取下载速度，稳定输出】
 speed_test(){
     local ip="$1"
     local idx="$2"
     local total="$3"
     local url="http://$ip/$stream"
-    local a=""
+    local raw_speed=""
     # 测速重试循环
     for ((r=0; r<=SPEED_RETRY; r++)); do
-        curl $url --connect-timeout 3 --max-time 15 -o /dev/null >zubo_${idx}.tmp 2>&1
-        a=$(head -n 3 zubo_${idx}.tmp | awk '{print $NF}' | tail -n 1)
-        # 如果获取到速率，直接跳出重试
-        if [[ $a =~ [kM] ]];then
+        # -w %{speed_download} 直接输出下载字节速度，丢弃stderr
+        raw_speed=$(curl --connect-timeout 3 --max-time 15 -o /dev/null -w "%{speed_download}" "$url" 2>/dev/null)
+        # 判断是否获取到有效数字
+        if [[ "$raw_speed" =~ ^[0-9\.]+$ && $(echo "$raw_speed > 0" | bc) -eq 1 ]];then
             break
         fi
     done
-    echo "第$idx/$total个：$ip    $a" >> $speed_log
+
+    # 转换单位 B/s → KB / MB
+    if (( $(echo "$raw_speed >= 1048576" | bc -l) )); then
+        a=$(echo "scale=2; $raw_speed / 1048576" | bc)M
+    elif (( $(echo "$raw_speed >= 1024" | bc -l) )); then
+        a=$(echo "scale=2; $raw_speed / 1024" | bc)k
+    else
+        a="${raw_speed}B"
+    fi
+
+    # 写入日志文件 + 打印到控制台
+    local line="第$idx/$total个：$ip    $a"
+    echo "$line" >> $speed_log
+    log_print "$line"
 }
 
 i=0
