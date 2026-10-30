@@ -63,9 +63,9 @@ case $city_choice in
         stream="rtp/239.77.0.217:5146"
         ;;
     0)
-        # 只循环1，不会跑其他不存在城市
-        for option in {1}; do
-          bash "$0" $option
+        # 修复：删掉{1}，直接写1，避免GA bash解析异常
+        for option in 1; do
+          bash "$0" "$option"
         done
         exit 0
         ;;
@@ -75,7 +75,7 @@ case $city_choice in
         ;;
 esac
 
-# =========【新增防护1：city为空直接退出】=========
+# =========【新增防护：city为空直接退出】=========
 if [ -z "$city" ];then
     log_print "❌ city变量为空，退出本次扫描"
     exit 0
@@ -94,7 +94,7 @@ log_print "======== 开始检索 ${city} ========"
 
 log_print "从 '${ipfile}' 读取ip并添加到检测列表"
 
-# =========【新增防护2：判断ip文件是否存在】=========
+# =========【新增防护：判断ip文件是否存在】=========
 if [ ! -f "$ipfile" ];then
     log_print "❌ 错误：文件 $ipfile 不存在！退出"
     exit 0
@@ -108,7 +108,7 @@ rm -f tmp_ipfile
 total_ip=$(wc -l < "$ipfile")
 log_print "待探测IP总数：$total_ip"
 
-# =========【新增防护3：空文件直接退出，防止除零】=========
+# =========【新增防护：空文件直接退出，防止除零】=========
 if [ "$total_ip" -eq 0 ];then
     log_print "⚠️ IP文件为空，跳过当前城市扫描"
     exit 0
