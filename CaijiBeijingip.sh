@@ -134,10 +134,43 @@ if [ "$city_choice" -eq 0 ];then
         }
     }' > $merge_output
 
+    # 【新增】清理全局合并文件，清除http、"第x/x个"这类脏文本，过滤组播
+    sed -i 's|http://||g' $merge_output
+    sed -i 's|第[0-9]*\/[0-9]*个：||g' $merge_output
+    awk '
+    {
+        for(i=1;i<=NF;i++){
+            if($i ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+/) {
+                ip_port=$i
+                split(ip_port,iparr,":");
+                split(iparr[1],oct,".");
+                if(oct[1]>=224 && oct[1]<=239) next;
+            }
+        }
+        print
+    }' $merge_output > tmp_merge && mv tmp_merge $merge_output
+
     log_print "✅ 全局合并完成，IP+端口完全相同才去重，同IP不同端口保留，只保留最快前${MERGE_TOP_COUNT}条：$merge_output"
-    # ============新增：打印全局合并后的总排序列表到日志============
+    # ============全局合并打印：去http+过滤组播+序号对齐排版============
     log_print "==================== 全局合并【从快到慢总清单】 ===================="
-    cat "${merge_output}" | tee -a "${LOG_FILE}"
+    awk '
+    {
+        gsub(/http:\/\//,"");
+        gsub(/第[0-9]*\/[0-9]*个：/,"");
+        for(i=1;i<=NF;i++){
+            if($i ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+/) {
+                ip_port=$i
+                split(ip_port,iparr,":");
+                split(iparr[1],oct,".");
+                # 过滤224~239组播网段
+                if(oct[1]>=224 && oct[1]<=239) next;
+            }
+            if($i ~ /^[0-9]+\.?[0-9]*[kM]$/) speed=$i
+        }
+        if(ip_port!="" && speed!=""){
+            printf "%-4s %-22s %s\n",NR,ip_port,speed
+        }
+    }' "${merge_output}" | tee -a "${LOG_FILE}"
     log_print "====================================================================="
 
     log_print "📝 本次扫描日志保存至：${LOG_FILE}"
@@ -251,22 +284,45 @@ awk '
 }
 ' $speed_log | sort -k1 -nr | awk '{print $2"  "$3}' > $result_ip
 
-# 打印当前城市排序后的速度列表
+# ============单城市排序输出：过滤组播+序号+对齐排版============
 log_print "========= ${city} 排序完成，从快到慢列表 ========="
-cat "${result_ip}" | tee -a "${LOG_FILE}"
+awk '
+{
+    gsub(/http:\/\//,"");
+    gsub(/第[0-9]*\/[0-9]*个：/,"");
+    for(i=1;i<=NF;i++){
+        if($i ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+/) {
+            ip_port=$i
+            split(ip_port,iparr,":");
+            split(iparr[1],oct,".");
+            if(oct[1]>=224 && oct[1]<=239) next;
+        }
+        if($i ~ /^[0-9]+\.?[0-9]*[kM]$/) speed=$i
+    }
+    if(ip_port!="" && speed!=""){
+        printf "%-4s %-22s %s\n",NR,ip_port,speed
+    }
+}' "${result_ip}" | tee -a "${LOG_FILE}"
 log_print "=================================================="
 
-# ========== 单个城市取前 CITY_TOP_COUNT 条，生成城市独立txt ==========
+# ==========单个城市取前 CITY_TOP_COUNT 条，生成纯净m3u，不带多余文字 ==========
 > tmp_all.txt
 for ((n=1; n<=CITY_TOP_COUNT; n++));do
-    ip=$(awk -v line="$n" 'NR==line{print $2}' $result_ip)
+    # 提取纯净IP，清除http前缀
+    ip=$(awk -v line="$n" 'NR==line{print $2}' $result_ip | sed 's|http://||; s|第[0-9]*\/[0-9]*个：||')
+    # 过滤组播地址
+    ip_only=$(echo "$ip" | cut -d: -f1)
+    first_oct=$(echo "$ip_only" | cut -d. -f1)
+    if [ "$first_oct" -ge 224 ] && [ "$first_oct" -le 239 ];then
+        continue
+    fi
     if [ -z "$ip" ];then continue;fi
     sed "s|ipipip|$ip|g" template/template_${city}.txt >> tmp_all.txt
 done
-# 过滤包含连续三个斜杠的脏行 http:///
-grep -v '///' tmp_all.txt > "txt/${city}.txt"
+# 清理残留http前缀、多余文字，过滤脏行
+sed 's|http://||g; s|第[0-9]*\/[0-9]*个：||g' tmp_all.txt | grep -v '///' > "txt/${city}.txt"
 rm -f tmp_all.txt $speed_log $result_ip
-log_print "${city} 测试完成，保留前${CITY_TOP_COUNT}条，生成文件：'txt/${city}.txt'"
+log_print "${city} 测试完成，保留前${CITY_TOP_COUNT}条，生成纯净订阅文件：'txt/${city}.txt'"
 
 # 正常结束，调用cleanup，不退出脚本，返回批量循环
 cleanup 0
