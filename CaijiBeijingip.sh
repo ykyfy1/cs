@@ -4,7 +4,7 @@
 NC_CONCURRENT=12        # 端口探测并发，GA建议 8~12
 SPEED_CONCURRENT=10     # 测速curl并发，GA建议 8~10
 PROGRESS_STEP=20        # 每处理多少个IP打印一次进度
-NC_RETRY=1              # nc端口探测失败重试次数（0=关闭重试）
+NC_RETRY=1              # 端口探测失败重试次数（0=关闭重试）
 SPEED_RETRY=0           # 测速curl失败重试次数（0=关闭，1=重试1次）
 CITY_TOP_COUNT=30       # 单个城市结果保留前N条
 MERGE_TOP_COUNT=100     # 合并全部城市后保留前N条
@@ -83,85 +83,41 @@ fi
 
 # 使用城市名作为默认文件名，格式为 CityName.ip
 time=$(date +%m%d%H%M)
-ipfile=ip/${city}_ip.txt
+# ========== 核心改动：直接读取Python已经扫描好的存活IP文件 ==========
 good_ip=ip/good_${city}_ip.txt
 result_ip=ip/result_${city}_ip.txt
 speed_log=speedtest_${city}_$time.log
 > $speed_log
-> $good_ip
 
 log_print "======== 开始检索 ${city} ========"
+log_print "从 '${good_ip}' 读取Python预扫描完成的存活IP，跳过端口探测，直接测速"
 
-log_print "从 '${ipfile}' 读取ip并添加到检测列表"
-
-# =========【新增防护：判断ip文件是否存在】=========
-if [ ! -f "$ipfile" ];then
-    log_print "❌ 错误：文件 $ipfile 不存在！退出"
+# =========【文件防护】=========
+if [ ! -f "$good_ip" ];then
+    log_print "❌ 错误：存活IP文件 $good_ip 不存在！退出"
     exit 0
 fi
 
-cat $ipfile >> tmp_ipfile
-sort tmp_ipfile | uniq | sed '/^\s*$/d' > $ipfile
-rm -f tmp_ipfile
+# 去重、清除空行
+sort "$good_ip" | uniq | sed '/^\s*$/d' > tmp_filter_ip
+mv tmp_filter_ip "$good_ip"
 
-# 获取IP总数用于进度百分比
-total_ip=$(wc -l < "$ipfile")
-log_print "待探测IP总数：$total_ip"
+lines=$(wc -l < "$good_ip")
+log_print "获取存活IP总数：$lines"
 
-# =========【新增防护：空文件直接退出，防止除零】=========
-if [ "$total_ip" -eq 0 ];then
-    log_print "⚠️ IP文件为空，跳过当前城市扫描"
+# ========== 新增调试：打印全部待测速IP列表 ==========
+log_print "===== 调试：本次待测速IP列表 ====="
+cat "$good_ip" | tee -a "${LOG_FILE}"
+log_print "=================================="
+# ====================================================
+
+if [ "$lines" -eq 0 ];then
+    log_print "⚠️ 存活IP文件为空，跳过当前城市扫描"
     exit 0
 fi
 
-# ====================== 【并发端口探测 nc + 重试 + 进度输出】======================
-log_print "开始并发端口探测，并发数：$NC_CONCURRENT，失败重试次数：$NC_RETRY"
-> tmp_good_ip
-task_nc(){
-    local ip="$1"
-    local tmp_ip=$(echo -n "$ip" | sed 's/:/ /')
-    local output=""
-    local ok=0
-    # 循环重试
-    for ((r=0; r<=NC_RETRY; r++)); do
-        output=$(nc -w 1 -v -z $tmp_ip 2>&1)
-        if [[ $output == *"succeeded"* ]]; then
-            ok=1
-            break
-        fi
-    done
-    if [ $ok -eq 1 ]; then
-        echo "$ip" >> tmp_good_ip
-    fi
-}
-
-i=0
-while IFS= read -r ip; do
-    i=$((i + 1))
-    task_nc "$ip" &
-    # 每PROGRESS_STEP输出进度
-    if [ $((i % PROGRESS_STEP)) -eq 0 ];then
-        wait
-        pct=$(( i * 100 / total_ip ))
-        log_print "[端口探测进度] $i/$total_ip ($pct%)"
-    fi
-    # 控制并发上限
-    if [ $((i % NC_CONCURRENT)) -eq 0 ];then
-        wait
-    fi
-done < $ipfile
-wait
-# 最后一次进度
-pct=$(( i * 100 / total_ip ))
-log_print "[端口探测进度] $i/$total_ip ($pct%) 探测全部完成"
-
-# 去重写入good_ip
-sort tmp_good_ip | uniq > $good_ip
-rm -f tmp_good_ip
-# ===============================================================
-
-lines=$(wc -l < $good_ip)
-log_print "端口探测完成，连接成功 $lines 个,开始并行测速，并发数: $SPEED_CONCURRENT，测速重试次数:$SPEED_RETRY"
+# ====================== 【直接进入测速，删除了sh内部nc端口探测整块代码】======================
+log_print "端口探测由Python脚本提前完成，开始并行测速，并发数: $SPEED_CONCURRENT，测速重试次数:$SPEED_RETRY"
 
 # 并行测速函数（增加测速重试逻辑）
 speed_test(){
@@ -229,7 +185,7 @@ for ((n=1; n<=CITY_TOP_COUNT; n++));do
 done
 # 过滤包含连续三个斜杠的脏行 http:///
 grep -v '///' tmp_all.txt > "txt/${city}.txt"
-rm -f tmp_all.txt $ipfile $good_ip $speed_log $result_ip
+rm -f tmp_all.txt $good_ip $speed_log $result_ip
 log_print "${city} 测试完成，保留前${CITY_TOP_COUNT}条，生成文件：'txt/${city}.txt'"
 
 
