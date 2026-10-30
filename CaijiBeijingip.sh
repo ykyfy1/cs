@@ -64,7 +64,7 @@ case $city_choice in
         ;;
     0)
         # 循环调用所有城市，修复递归
-        for option in {1..35}; do
+        for option in {1}; do
           bash "$0" $option
         done
         exit 0
