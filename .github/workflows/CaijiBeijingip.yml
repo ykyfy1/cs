@@ -51,14 +51,11 @@ jobs:
           find txt -type f -name "*.txt" -mtime +7 -delete
           echo "✅ 已删除txt目录下7天前的txt结果文件"
 
-      - name: 获取源
+      # =========【合并：Python采集 + bash测速 在同一个step，共享文件系统】=========
+      - name: 获取源 + 测速处理
         run: |
           cd $GITHUB_WORKSPACE
           python ./CaijiBeijingip.py
-
-      - name: 测试源
-        run: |
-          cd $GITHUB_WORKSPACE
           cat zubo.txt > zubo_bf.txt
           bash ./CaijiBeijingip.sh
           cat txt/Beijing_dianxin.txt > zubo.txt
@@ -70,6 +67,7 @@ jobs:
           path: |
             txt/
             logs/
+            ip/
           retention-days: 7
 
       - name: 更新源（有变更才提交）
