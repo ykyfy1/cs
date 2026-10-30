@@ -136,19 +136,24 @@ speed_test(){
         fi
     done
 
-    # 转换单位 B/s → KB / MB
-    if (( $(echo "$raw_speed >= 1048576" | bc -l) )); then
-        a=$(echo "scale=2; $raw_speed / 1048576" | bc)M
-    elif (( $(echo "$raw_speed >= 1024" | bc -l) )); then
-        a=$(echo "scale=2; $raw_speed / 1024" | bc)k
+    # =========核心逻辑：只过滤0，大于0全部写入日志=========
+    if [[ "$raw_speed" =~ ^[0-9\.]+$ && $(echo "$raw_speed > 0" | bc) -eq 1 ]]; then
+        # 转换单位 B/s → KB / MB
+        if (( $(echo "$raw_speed >= 1048576" | bc -l) )); then
+            a=$(echo "scale=2; $raw_speed / 1048576" | bc)M
+        elif (( $(echo "$raw_speed >= 1024" | bc -l) )); then
+            a=$(echo "scale=2; $raw_speed / 1024" | bc)k
+        else
+            a="${raw_speed}B"
+        fi
+        # 写入日志文件 + 打印到控制台
+        local line="第$idx/$total个：$ip    $a"
+        echo "$line" >> $speed_log
+        log_print "$line"
     else
-        a="${raw_speed}B"
+        # 0B仅控制台输出，**不写入speed_log，不会参与排序**
+        log_print "第$idx/$total个：$ip    0B 已跳过"
     fi
-
-    # 写入日志文件 + 打印到控制台
-    local line="第$idx/$total个：$ip    $a"
-    echo "$line" >> $speed_log
-    log_print "$line"
 }
 
 i=0
