@@ -63,13 +63,23 @@ case $city_choice in
         stream="rtp/239.77.0.217:5146"
         ;;
     0)
-        # 循环调用所有城市，修复递归
+        # 只循环1，不会跑其他不存在城市
         for option in {1}; do
           bash "$0" $option
         done
         exit 0
         ;;
+    *)
+        log_print "⚠️ 城市编号【$city_choice】未配置，直接退出"
+        exit 0
+        ;;
 esac
+
+# =========【新增防护1：city为空直接退出】=========
+if [ -z "$city" ];then
+    log_print "❌ city变量为空，退出本次扫描"
+    exit 0
+fi
 
 # 使用城市名作为默认文件名，格式为 CityName.ip
 time=$(date +%m%d%H%M)
@@ -83,6 +93,13 @@ speed_log=speedtest_${city}_$time.log
 log_print "======== 开始检索 ${city} ========"
 
 log_print "从 '${ipfile}' 读取ip并添加到检测列表"
+
+# =========【新增防护2：判断ip文件是否存在】=========
+if [ ! -f "$ipfile" ];then
+    log_print "❌ 错误：文件 $ipfile 不存在！退出"
+    exit 0
+fi
+
 cat $ipfile >> tmp_ipfile
 sort tmp_ipfile | uniq | sed '/^\s*$/d' > $ipfile
 rm -f tmp_ipfile
@@ -90,6 +107,12 @@ rm -f tmp_ipfile
 # 获取IP总数用于进度百分比
 total_ip=$(wc -l < "$ipfile")
 log_print "待探测IP总数：$total_ip"
+
+# =========【新增防护3：空文件直接退出，防止除零】=========
+if [ "$total_ip" -eq 0 ];then
+    log_print "⚠️ IP文件为空，跳过当前城市扫描"
+    exit 0
+fi
 
 # ====================== 【并发端口探测 nc + 重试 + 进度输出】======================
 log_print "开始并发端口探测，并发数：$NC_CONCURRENT，失败重试次数：$NC_RETRY"
