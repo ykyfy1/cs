@@ -1,4 +1,6 @@
 name: CaijiBeijingip
+permissions:
+  contents: write
 on:
   #schedule:
     #- cron: "01 20 * * *"
@@ -85,6 +87,8 @@ jobs:
           else
             echo "✅ 源文件检测到更新，准备提交"
             git add .
+            # 只提交zubo.txt，不要git add . 全部文件！避免提交大量日志ip临时文件
+            git add zubo.txt
             if [[ -n $(git status --porcelain) ]]; then
               git commit -m "🤖 GitHub Actions自动更新多城市源 ${{ github.run_id }}"
               git push
