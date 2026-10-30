@@ -157,7 +157,6 @@ speed_test(){
         fi
     done
     echo "第$idx/$total个：$ip    $a" >> $speed_log
-    echo "$ip    $a" >> $speed_log
 }
 
 i=0
@@ -184,11 +183,16 @@ log_print "测速结果排序"
 # 转换k/M为数值用于排序：k=千，M=兆，统一转成KB排序
 awk '
 {
-    val=$1;ip=$2
-    if(val ~ /M/){num=val*1024}
-    else if(val ~ /k/){num=val}
+    # 从行内提取IP和速率
+    for(i=1;i<=NF;i++){
+        if ($i ~ /[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+/) ip=$i
+        if ($i ~ /^[0-9]+\.?[0-9]*[kM]$/) speed=$i
+    }
+    if(speed == "") next;
+    if(speed ~ /M/){num=speed*1024}
+    else if(speed ~ /k/){num=speed}
     else {num=0}
-    print num,val,ip
+    print num,speed,ip
 }
 ' $speed_log | sort -k1 -nr | awk '{print $2"  "$3}' > $result_ip
 
@@ -197,10 +201,11 @@ awk '
 for ((n=1; n<=CITY_TOP_COUNT; n++));do
     ip=$(awk -v line="$n" 'NR==line{print $2}' $result_ip)
     if [ -z "$ip" ];then continue;fi
-    sed "s/ipipip/$ip/g" template/template_${city}.txt >> tmp_all.txt
+    # 改用 | 做sed分隔符，避免IP和/冲突
+    sed "s|ipipip|$ip|g" template/template_${city}.txt >> tmp_all.txt
 done
-
-grep -vE '/{3}' tmp_all.txt > "txt/${city}.txt"
+# 过滤包含连续三个斜杠的脏行 http:///
+grep -v '///' tmp_all.txt > "txt/${city}.txt"
 rm -f tmp_all.txt $ipfile $good_ip $speed_log $result_ip
 log_print "${city} 测试完成，保留前${CITY_TOP_COUNT}条，生成文件：'txt/${city}.txt'"
 
