@@ -19,18 +19,17 @@ jobs:
         with:
           python-version: 3.11
 
-      - name: 安装系统依赖(masscan,nmap等)
+      - name: 安装系统依赖(masscan,nmap,bc等)
         run: |
           sudo apt-get update
-          sudo apt-get install -y masscan yt-dlp sed nmap || true
+          sudo apt-get install -y masscan yt-dlp sed nmap bc || true
           masscan --version || true
           nmap --version || true
+          bc --version || true
 
       - name: 安装python依赖
-        run: pip install aiohttp
-
-      - name: Install python requirements
         run: |
+          pip install aiohttp
           pip install -r requirements.txt
 
       # 提前创建脚本需要的目录
