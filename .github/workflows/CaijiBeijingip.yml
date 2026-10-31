@@ -54,15 +54,16 @@ jobs:
         run: |
           cd $GITHUB_WORKSPACE
           python ./CaijiBeijingip.py
-          cat zubo.txt > zubo_bf.txt
+          # 备份原有zubo.txt
+          cp zubo.txt zubo_bf.txt
           bash ./CaijiBeijingip.sh 0
-          # 校验合并结果文件，存在且非空才覆盖zubo.txt
-          MERGE_FILE="txt/all_city_sorted.txt"
-          if [ -f "$MERGE_FILE" ] && [ -s "$MERGE_FILE" ]; then
-            echo "✅ 全局合并文件正常，更新zubo.txt"
-            cat "$MERGE_FILE" > zubo.txt
+          # 校验根目录zubo.txt，存在且非空才保留新文件，否则恢复备份
+          NEW_ZUBO="./zubo.txt"
+          if [ -f "$NEW_ZUBO" ] && [ -s "$NEW_ZUBO" ]; then
+            echo "✅ 全局合并完成，zubo.txt生成成功"
           else
-            echo "⚠️ 警告：$MERGE_FILE 不存在或者是空文件！不覆盖zubo.txt，保留旧源！"
+            echo "⚠️ 警告：新zubo.txt不存在或者是空！恢复旧备份文件"
+            cp zubo_bf.txt zubo.txt
           fi
 
       - name: 上传扫描结果&日志到Artifact
@@ -73,6 +74,7 @@ jobs:
             txt/
             logs/
             ip/
+            zubo.txt
           retention-days: 7
 
       - name: 更新源（文件变更才提交，无变化直接跳过）
@@ -86,9 +88,9 @@ jobs:
             echo "ℹ️ 新源与旧源内容完全一致，无需提交，直接结束"
           else
             echo "✅ 源文件检测到更新，准备提交"
-            git add .
-            # 只提交zubo.txt，不要git add . 全部文件！避免提交大量日志ip临时文件
+            # 只提交zubo.txt 和 txt目录下城市结果文件
             git add zubo.txt
+            git add txt/
             if [[ -n $(git status --porcelain) ]]; then
               git commit -m "🤖 GitHub Actions自动更新多城市源 ${{ github.run_id }}"
               git push
