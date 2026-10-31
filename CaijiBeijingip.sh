@@ -81,7 +81,7 @@ case $city_choice in
         ;;
     2)
         city="Shanghai_dianxin"
-        stream="rtp/替换成上海组播地址"
+        stream="rtp/233.18.204.67:5140"
         ;;
     3)
         city="Guangzhou_dianxin"
