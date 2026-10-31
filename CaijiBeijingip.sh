@@ -321,6 +321,8 @@ for ((n=1; n<=CITY_TOP_COUNT; n++));do
 done
 
 sed 's|第[0-9]*\/[0-9]*个：||g' tmp_all.txt | grep -v '///' > "txt/${city}.txt"
+# 新增：清理单个城市txt里的多重http
+sed -i 's/http:\/\///g; s/^/http:\/\//' "txt/${city}.txt"
 rm -f tmp_all.txt $speed_log $result_ip
 log_print "${city} 测试完成，保留前${CITY_TOP_COUNT}条，生成纯净订阅文件：'txt/${city}.txt'"
 
