@@ -21,7 +21,7 @@ cleanup() {
     local exit_type="$1"
     if [ "$exit_type" -eq 1 ];then
         echo -e "\n⚠️  检测到异常退出，清理临时文件..." | tee -a "${LOG_FILE}"
-        rm -f tmp_good_ip zubo_*.tmp tmp_all.txt
+        rm -f tmp_good_ip zubo_*.tmp tmp_all.txt tmp_speed_m3u.tmp
         echo "✅ 临时文件清理完成" | tee -a "${LOG_FILE}"
         exit 1
     else
@@ -86,106 +86,81 @@ case $city_choice in
         for option in 1 2 3; do
           bash "$0" "$option"
         done
-        log_print "==================== 全部城市测速结束，生成全局统一排序列表 ===================="
-        merge_output="txt/all_city_sorted.txt"
+        log_print "==================== 全部城市测速结束，生成全局M3U排序列表 ===================="
+        merge_output="txt/all_city_sorted.m3u"
         > "$merge_output"
+        tmp_speed_m3u="tmp_speed_m3u.tmp"
+        > "$tmp_speed_m3u"
 
-        # 合并所有城市测速结果，按速度从快到慢全局排序，去重，过滤组播IP
-        cat txt/*.txt | awk -v top="$MERGE_TOP_COUNT" '
-        function getnum(s){
-            if(s ~ /M/){sub(/M/,"",s); return s*1024}
-            if(s ~ /k/){sub(/k/,"",s); return s}
-            return 0
+        # 读取每个城市生成的临时m3u，提取速度、完整两行m3u内容
+        cat txt/*.txt | awk '
+        BEGIN{
+            speed_val=0
+            line_buf=""
         }
         {
-            rate=""
-            ip_port=""
-            for(i=1;i<=NF;i++){
-                if($i ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+$/) ip_port=$i
-                if($i ~ /^[0-9]+\.?[0-9]*[kM]$/) rate=$i
+            if($0 ~ /^#EXTINF/){
+                line_buf=$0
+            }else if($0 ~ /^http:\/\//){
+                # 拿到http行，提取IP
+                ip_line=$0
+                sub(/http:\/\//,"",ip_line)
+                split(ip_line,ipp,":")
+                ip=ipp[1]
+                split(ip,oct,".")
+                # 过滤组播IP
+                if(oct[1]>=224 && oct[1]<=239) {line_buf="";next;}
+                print speed_val, line_buf
+                print speed_val, $0
+                speed_val=0
+                line_buf=""
+            }else if($0 ~ /[0-9]+\.?[0-9]*[kM]/){
+                # 提取速度
+                if($0 ~ /M/){sub(/M/,"");speed_val=$0*1024}
+                else if($0 ~ /k/){sub(/k/,"");speed_val=$0}
+                else{speed_val=0}
             }
-            num=getnum(rate)
-            print num,ip_port,$0
-        }' | sort -k1 -nr | awk -v top="$MERGE_TOP_COUNT" '
-        BEGIN{count=0}
+        }' > "${tmp_speed_m3u}"
+
+        # 按速度降序排序，重组标准m3u格式
+        cat "${tmp_speed_m3u}" | sort -k1 -nr | awk '
+        BEGIN{last_speed=-1}
         {
-            key=$2
-            if(!seen[key] && count < top){
-                seen[key]=1
-                sub($2,"http://"$2,$0)
-                print substr($0, index($0,$3))
-                count++
+            sp=$1
+            content=substr($0,index($0,$2))
+            if(sp != last_speed){
+                print content
+            }else{
+                print content
             }
-        }' > "$merge_output"
+            last_speed=sp
+        }' | grep -v '^[0-9.]*$' > "${merge_output}"
 
-        # 清理多余文字
-        sed -i 's|第[0-9]*\/[0-9]*个：||g' "$merge_output"
-        # 过滤组播IP
-        awk '
-        {
-            for(i=1;i<=NF;i++){
-                if($i ~ /^http:\/\/[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+/){
-                    ip_port=$i
-                    sub(/http:\/\//,"",ip_port)
-                    split(ip_port,iparr,":");
-                    split(iparr[1],oct,".");
-                    if(oct[1]>=224 && oct[1]<=239) next;
-                }
-            }
-            print
-        }' "$merge_output" > tmp_merge && mv tmp_merge "$merge_output"
+        # ===================== 输出m3u文件，保留#EXTINF格式 =====================
+        cp "$merge_output" zubo.m3u
+        cp "$merge_output" txt/Beijing_dianxin.m3u
+        cp "$merge_output" txt/Shanghai_dianxin.m3u
+        cp "$merge_output" txt/Guangzhou_dianxin.m3u
+        cp "$merge_output" 组播_Beijing_dianxin.m3u
+        cp "$merge_output" 组播_Shanghai_dianxin.m3u
+        cp "$merge_output" 组播_Guangzhou_dianxin.m3u
 
-        # ===================== 核心：全部文件写入同一份全局排序结果 =====================
-        cp "$merge_output" zubo.txt
-        cp "$merge_output" txt/Beijing_dianxin.txt
-        cp "$merge_output" txt/Shanghai_dianxin.txt
-        cp "$merge_output" txt/Guangzhou_dianxin.txt
-        cp "$merge_output" 组播_Beijing_dianxin.txt
-        cp "$merge_output" 组播_Shanghai_dianxin.txt
-        cp "$merge_output" 组播_Guangzhou_dianxin.txt
+        # 输出行数校验，GA日志直接看有没有数据
+        log_print "==== 文件生成校验 ===="
+        log_print "zubo.m3u 行数：$(wc -l < zubo.m3u)"
+        log_print "all_city_sorted.m3u 行数：$(wc -l < ${merge_output})"
+        log_print "组播_Beijing_dianxin.m3u 行数：$(wc -l < 组播_Beijing_dianxin.m3u)"
+        log_print "======================"
 
-        # 统一清理http前缀再追加http，格式标准化
-        sed -i 's/http:\/\///g; s/^/http:\/\//' zubo.txt
-        sed -i 's/http:\/\///g; s/^/http:\/\//' txt/Beijing_dianxin.txt
-        sed -i 's/http:\/\///g; s/^/http:\/\//' txt/Shanghai_dianxin.txt
-        sed -i 's/http:\/\///g; s/^/http:\/\//' txt/Guangzhou_dianxin.txt
-        sed -i 's/http:\/\///g; s/^/http:\/\//' "$merge_output"
-        sed -i 's/http:\/\///g; s/^/http:\/\//' 组播_Beijing_dianxin.txt
-        sed -i 's/http:\/\///g; s/^/http:\/\//' 组播_Shanghai_dianxin.txt
-        sed -i 's/http:\/\///g; s/^/http:\/\//' 组播_Guangzhou_dianxin.txt
+        # 备份上一轮结果
+        cp zubo.m3u zubo_bf.m3u
 
-        # 备份上一轮结果到 zubo_bf.txt
-        cp zubo.txt zubo_bf.txt
+        log_print "✅ 全局排序完成！保留M3U格式，按测速从快到慢排序"
+        log_print "👉 zubo.m3u / txt/下城市文件 / 组播_*.m3u 内容完全相同"
 
-        log_print "✅ 全局排序完成！"
-        log_print "txt/all_city_sorted.txt"
-        log_print "txt/Beijing_dianxin.txt"
-        log_print "txt/Shanghai_dianxin.txt"
-        log_print "txt/Guangzhou_dianxin.txt"
-        log_print "zubo.txt"
-        log_print "组播_Beijing_dianxin.txt"
-        log_print "组播_Shanghai_dianxin.txt"
-        log_print "组播_Guangzhou_dianxin.txt"
-        log_print "👉 以上8个文件内容、IP排序完全一致，全局测速从快到慢"
-
-        # 打印排序预览日志
-        awk '
-        {
-            gsub(/第[0-9]*\/[0-9]*个：/,"");
-            for(i=1;i<=NF;i++){
-                if($i ~ /^http:\/\/[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+/){
-                    ip_port=$i
-                    sub(/http:\/\//,"",ip_port)
-                    split(ip_port,iparr,":");
-                    split(iparr[1],oct,".");
-                    if(oct[1]>=224 && oct[1]<=239) next;
-                }
-                if($i ~ /^[0-9]+\.?[0-9]*[kM]$/) speed=$i
-            }
-            if(ip_port!="" && speed!=""){
-                printf "%-4s %-22s %s\n",NR,ip_port,speed
-            }
-        }' "${merge_output}" | tee -a "${LOG_FILE}"
+        # 打印预览
+        log_print "===== 全局M3U排序列表预览 ====="
+        cat "$merge_output" | tee -a "${LOG_FILE}"
         log_print "====================================================================="
         log_print "📝 日志已保存: ${LOG_FILE}"
         exit 0
@@ -206,7 +181,9 @@ time_tag=$(date +%m%d%H%M)
 good_ip="ip/good_${city}_ip.txt"
 result_ip="ip/result_${city}_ip.txt"
 speed_log="speedtest_${city}_${time_tag}.log"
+city_m3u_tmp="txt/${city}.txt"
 > "$speed_log"
+> "$city_m3u_tmp"
 
 log_print "======== 开始测速 ${city} ========"
 log_print "读取存活IP文件: ${good_ip}"
@@ -254,7 +231,7 @@ speed_test(){
             sp="$raw_speed"
             unit="B"
         fi
-        echo "第${idx}/${total}个：${ip}    ${sp}${unit}" >> "$speed_log"
+        echo "${sp}${unit} ${ip}" >> "$speed_log"
         log_print "第${idx}/${total}个：${ip}    ${sp}${unit}"
     else
         log_print "第${idx}/${total}个：${ip}    0B 已跳过"
@@ -279,36 +256,37 @@ wait
 log_print "[测速进度] ${i}/${line_count} (100%) 当前城市测速完成"
 
 log_print "开始本城市测速结果排序"
+# 按速度降序排序
 awk '
 {
-    for(i=1;i<=NF;i++){
-        if ($i ~ /[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+/) ip=$i
-        if ($i ~ /^[0-9]+\.?[0-9]*[kM]$/) speed=$i
-    }
-    if(speed == "") next;
+    ip=$2
+    speed=$1
     if(speed ~ /M/){num=speed*1024}
     else if(speed ~ /k/){num=speed}
     else {num=0}
     print num,speed,ip
 }
-' "$speed_log" | sort -k1 -nr | awk '{print $2"  "$3}' > "$result_ip"
+' "$speed_log" | sort -k1 -nr > "$result_ip"
 
-> tmp_all.txt
+# 读取template模板生成M3U两行一组格式，写入城市txt
 for ((n=1; n<=CITY_TOP_COUNT; n++));do
-    ip_raw=$(awk -v line="$n" 'NR==line{print $2}' "$result_ip" | sed 's|第[0-9]*\/[0-9]*个：||')
+    ip_raw=$(awk -v line="$n" 'NR==line{print $3}' "$result_ip")
+    speed_line=$(awk -v line="$n" 'NR==line{print $2}' "$result_ip")
     ip_raw=$(strip_http "$ip_raw")
-    ip_only=$(echo "$ip_raw" | cut -d: -f1)
-    first_oct=$(echo "$ip_only" | cut -d. -f1)
-    if [ "$first_oct" -ge 224 ] && [ "$first_oct" -le 239 ];then
+    if [ -z "$ip_raw" ];then
         continue
     fi
-    if [ -z "$ip_raw" ];then continue;fi
-    ip_full="http://${ip_raw}"
-    sed "s|ipipip|${ip_full}|g" "template/template_${city}.txt" >> tmp_all.txt
+    ip_only=$(echo "$ip_raw" | cut -d: -f1)
+    first_oct=$(echo "$ip_only" | cut -d. -f1)
+    if [ -n "$first_oct" ] && [ "$first_oct" -ge 224 ] && [ "$first_oct" -le 239 ];then
+        continue
+    fi
+    ip_full="http://${ip_raw}/${stream}"
+    # 读取模板替换，保留#EXTINF行
+    sed "s|ipipip|${ip_full}|g" "template/template_${city}.txt" >> "${city_m3u_tmp}"
+    # 附带速度行，用于后面全局排序
+    echo "SPEED:${speed_line}" >> "${city_m3u_tmp}"
 done
 
-sed 's|第[0-9]*\/[0-9]*个：||g' tmp_all.txt | grep -v '///' > "txt/${city}.txt"
-rm -f tmp_all.txt "$speed_log" "$result_ip"
-log_print "${city} 测速数据临时保存，等待全部城市跑完统一生成全局排序列表"
-
+log_print "${city} M3U临时文件生成完成，等待全部城市跑完统一全局排序"
 cleanup 0
