@@ -45,17 +45,18 @@ city_choice="$1"
 case $city_choice in
     1)
         city="Beijing_dianxin"
-        stream="rtp/239.94.0.103:5140"
+        # ✅ 修复：udpxy标准路径 /udp/组播:端口
+        stream="udp/239.94.0.103:5140"
         run_single=1
         ;;
     2)
         city="Shanghai_dianxin"
-        stream="rtp/239.94.0.103:5140"
+        stream="udp/239.94.0.103:5140"
         run_single=1
         ;;
     3)
         city="Guangzhou_dianxin"
-        stream="rtp/239.94.0.103:5140"
+        stream="udp/239.94.0.103:5140"
         run_single=1
         ;;
     0)
@@ -112,6 +113,7 @@ speed_test(){
     local ip="$1"
     local url="http://$ip/$stream"
     local raw_speed=""
+    echo "DEBUG: 正在测试地址: $url" >> "${LOG_FILE}"
     for ((r=0; r<=SPEED_RETRY; r++)); do
         raw_speed=$(curl --connect-timeout 3 --max-time 10 -o /dev/null -w "%{speed_download}" "$url" 2>/dev/null)
         if [[ "$raw_speed" =~ ^[0-9\.]+$ && $(echo "$raw_speed > 0" | bc) -eq 1 ]];then
@@ -130,7 +132,9 @@ speed_test(){
         else
             show_speed="${raw_speed}B"
         fi
-        echo "【测速日志】$ip 速度：$show_speed" >> "${LOG_FILE}"
+        echo "【测速成功】$ip 速度：$show_speed" >> "${LOG_FILE}"
+    else
+        echo "【测速失败】$ip raw_speed=$raw_speed" >> "${LOG_FILE}"
     fi
 }
 export -f speed_test
@@ -147,7 +151,7 @@ sort -k1 -nr tmp_speed_result.tmp > ip/tmp_speed_${city}.tmp
 # 保存给全局合并使用
 cp ip/tmp_speed_${city}.tmp "ip/tmp_speed_${city}.txt"
 
-echo "===== ${city} 测速排序完成 =====" >> "${LOG_FILE}"
+echo "===== ${city} 测速排序完成，有效测速行数：$(wc -l < ip/tmp_speed_${city}.tmp) =====" >> "${LOG_FILE}"
 
 # 生成城市独立txt（#EXTINF模板格式）
 > tmp_city_out.tmp
