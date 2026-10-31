@@ -201,10 +201,10 @@ log_print "开始并发测速，并发数：${SPEED_CONCURRENT}"
 
 speed_test(){
     local ip="$1"
-    local idx="$2"
-    local total="$3"
     local url="http://$ip/$stream"
     local raw_speed=""
+    # 打印当前正在测速的IP（输出到stderr，不污染测速结果文件）
+    echo "🔍 正在测速: $ip" >&2
     for ((r=0; r<=SPEED_RETRY; r++)); do
         raw_speed=$(curl --connect-timeout 3 --max-time 10 -o /dev/null -w "%{speed_download}" "$url" 2>/dev/null)
         if [[ "$raw_speed" =~ ^[0-9\.]+$ && $(echo "$raw_speed > 0" | bc) -eq 1 ]];then
@@ -220,7 +220,13 @@ speed_test(){
         else
             a="${raw_speed}B"
         fi
+        # 输出到测速结果文件
         echo "$a $ip"
+        # 成功日志，stderr输出，仅控制台展示
+        echo "✅ 测速成功 $ip 速度: $a" >&2
+    else
+        # 测速失败日志，stderr输出，仅控制台展示
+        echo "❌ 测速失败 $ip raw_speed:$raw_speed" >&2
     fi
 }
 export -f speed_test
