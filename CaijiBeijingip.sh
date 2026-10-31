@@ -158,6 +158,10 @@ if [ "$city_choice" -eq 0 ];then
         print
     }' $merge_output > tmp_merge && mv tmp_merge $merge_output
 
+    # ========== 复制为zubo.txt 并且执行兜底清理，强制只保留1个http:// ==========
+    cp $merge_output zubo.txt
+    sed -i 's/http:\/\///g; s/^/http:\/\//' zubo.txt
+
     log_print "✅ 全局合并完成，IP+端口完全相同才去重，同IP不同端口保留，只保留最快前${MERGE_TOP_COUNT}条：$merge_output"
     log_print "==================== 全局合并【从快到慢总清单】 ===================="
     awk '
