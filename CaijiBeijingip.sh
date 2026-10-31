@@ -19,11 +19,22 @@ LOG_FILE="${LOG_DIR}/scan_$(date +%Y%m%d_%H%M%S).log"
 # 临时文件列表，用于信号捕获清理
 TMP_FILE_LIST=()
 
-# ========= 备份旧zubo.txt 【新增：执行前备份】 =========
-if [ -f "zubo.txt" ];then
-    log_print "📦 检测到上一轮结果，备份旧文件 -> zubo_bf.txt"
-    cp -f zubo.txt zubo_bf.txt
-fi
+# 自定义打印函数【提前放到前面】
+log_print(){
+    if [ "$SAVE_LOG" -eq 1 ];then
+        echo "$1" | tee -a "${LOG_FILE}"
+    else
+        echo "$1"
+    fi
+}
+
+# 去除http前缀
+strip_http(){
+    local str="$1"
+    str="${str#http://}"
+    str="${str#https://}"
+    echo "$str"
+}
 
 # ========= 修复cleanup函数：区分异常终止/正常结束 =========
 cleanup() {
@@ -42,22 +53,11 @@ cleanup() {
 # 捕获异常信号
 trap 'cleanup 1' SIGINT SIGTERM SIGHUP
 
-# 自定义打印函数
-log_print(){
-    if [ "$SAVE_LOG" -eq 1 ];then
-        echo "$1" | tee -a "${LOG_FILE}"
-    else
-        echo "$1"
-    fi
-}
-
-# 去除http前缀
-strip_http(){
-    local str="$1"
-    str="${str#http://}"
-    str="${str#https://}"
-    echo "$str"
-}
+# ========= 【现在函数都定义完，再执行备份】每次执行前备份旧zubo.txt =========
+if [ -f "zubo.txt" ];then
+    log_print "📦 检测到上一轮结果，备份旧文件 -> zubo_bf.txt"
+    cp -f zubo.txt zubo_bf.txt
+fi
 
 if [ $# -eq 0 ]; then
   log_print "开始测试······"
