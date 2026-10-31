@@ -53,7 +53,7 @@ cleanup() {
 # 捕获异常信号
 trap 'cleanup 1' SIGINT SIGTERM SIGHUP
 
-# ========= 【现在函数都定义完，再执行备份】每次执行前备份旧zubo.txt =========
+# ========= 每次执行前备份旧zubo.txt =========
 if [ -f "zubo.txt" ];then
     log_print "📦 检测到上一轮结果，备份旧文件 -> zubo_bf.txt"
     cp -f zubo.txt zubo_bf.txt
@@ -106,36 +106,21 @@ if [ "$city_choice" -eq 0 ];then
     merge_output="txt/all_city_sorted.txt"
     > $merge_output
 
-    cat ip/result_*.txt | awk '
-    function getnum(s){
-        if(s ~ /M/){return s*1024}
-        if(s ~ /k/){return s}
-        return 0
-    }
-    {
-        speed=$1
-        ip=$2
-        num=getnum(speed)
-        print num,ip
-    }' | sort -k1 -nr | awk '!seen[$2]++' | head -n ${MERGE_TOP_COUNT} > tmp_global_sort.txt
+    cat ip/result_*.txt | sort -k1 -nr | awk '!seen[$3]++' | head -n ${MERGE_TOP_COUNT} > tmp_global_sort.txt
 
     > $merge_output
-    while read line;do
-        ip_raw=$(echo $line | cut -d' ' -f2)
+    while read byte speed ip_raw;do
         ip_raw=$(strip_http "$ip_raw")
         ip_only=$(echo "$ip_raw" | cut -d: -f1)
         first_oct=$(echo "$ip_only" | cut -d. -f1)
         if [ "$first_oct" -ge 224 ] && [ "$first_oct" -le 239 ];then
             continue
         fi
-        ip_full="http://${ip_raw}"
-        echo "#EXTINF:-1,IPTV" >> $merge_output
-        echo "${ip_full}" >> $merge_output
+        echo "${ip_raw}" >> $merge_output
     done < tmp_global_sort.txt
     rm -f tmp_global_sort.txt
 
     cp $merge_output zubo.txt
-    sed -i 's/http:\/\///g; s/^/http:\/\//' zubo.txt
 
     log_print "✅ 全局合并完成，IP按测速由快到慢排序，去重，过滤组播，保留前${MERGE_TOP_COUNT}条"
     log_print "📝 日志保存至：${LOG_FILE}"
@@ -175,24 +160,20 @@ speed_test(){
     local idx="$2"
     local total="$3"
     local url="http://$ip/$stream"
-    local raw_speed=""
-    for ((r=0; r<=SPEED_RETRY; r++)); do
-        raw_speed=$(curl --connect-timeout 3 --max-time 15 -o /dev/null -w "%{speed_download}" "$url" 2>/dev/null)
-        if [[ "$raw_speed" =~ ^[0-9\.]+$ && $(echo "$raw_speed > 0" | bc) -eq 1 ]];then
-            break
-        fi
-    done
-    if [[ "$raw_speed" =~ ^[0-9\.]+$ && $(echo "$raw_speed > 0" | bc) -eq 1 ]]; then
-        if (( $(echo "$raw_speed >= 1048576" | bc -l) )); then
-            a=$(echo "scale=2; $raw_speed / 1048576" | bc)M
-        elif (( $(echo "$raw_speed >= 1024" | bc -l) )); then
-            a=$(echo "scale=2; $raw_speed / 1024" | bc)k
+    local raw_byte=""
+    raw_byte=$(curl --connect-timeout 3 --max-time 15 -o /dev/null -w "%{speed_download}" "$url" 2>/dev/null)
+    if [[ "$raw_byte" =~ ^[0-9\.]+$ && $(echo "$raw_byte > 0" | bc) -eq 1 ]];then
+        # 格式化输出用于日志展示
+        if (( $(echo "$raw_byte >= 1048576" | bc -l) )); then
+            display_speed=$(echo "scale=2; $raw_byte / 1048576" | bc)M
+        elif (( $(echo "$raw_byte >= 1024" | bc -l) )); then
+            display_speed=$(echo "scale=2; $raw_byte / 1024" | bc)k
         else
-            a="${raw_speed}B"
+            display_speed="${raw_byte}B"
         fi
-        local line="$a $ip"
-        echo "$line" >> $speed_log
-        log_print "${idx}/${total} : $ip | $a"
+        # 存入日志：【原始字节数】【格式化速度】【IP】
+        echo "$raw_byte $display_speed $ip" >> $speed_log
+        log_print "第${idx}/${total}个：$ip | $display_speed"
     fi
 }
 
@@ -208,30 +189,38 @@ done < $good_ip
 wait
 log_print "[测速进度] $i/$total_good (100%) 测速完成"
 
-# 测速结果按速度降序排序存入result_ip
+# 重点！按【原始字节数值】降序排序，存入result_ip
 sort -k1 -nr $speed_log > $result_ip
 
-# ========= 重点：保留排序顺序生成城市订阅文件 =========
+# ====================== 【新增：打印 测速结果排序 区块到日志】======================
+log_print ""
+log_print "测速结果排序"
+# 过滤组播IP，输出：速度  IP:端口，和截图格式一模一样
 awk '
 {
-    ip=$2
+    ip=$3
+    split(ip,a,":");
+    split(a[1],oct,".");
+    if(!(oct[1]>=224 && oct[1]<=239)) print $2,"  ",$3
+}' $result_ip | head -n ${CITY_TOP_COUNT} | while read line;do
+    log_print "$line"
+done
+log_print ""
+# =================================================================================
+
+# ========= 保留排序顺序生成城市txt文件（纯净IP:PORT，不带http，无多余文字） =========
+awk '
+{
+    ip=$3
     split(ip,a,":");
     split(a[1],oct,".");
     if(!(oct[1]>=224 && oct[1]<=239)) print ip
 }' $result_ip | head -n ${CITY_TOP_COUNT} > tmp_order_ip.txt
 
-> tmp_all.txt
-while read ip_raw;do
-    ip_raw=$(strip_http "$ip_raw")
-    ip_full="http://${ip_raw}"
-    sed "s|ipipip|$ip_full|g" template/template_${city}.txt >> tmp_all.txt
-done < tmp_order_ip.txt
+cp tmp_order_ip.txt "txt/${city}.txt"
 rm -f tmp_order_ip.txt
 
-sed 's|第[0-9]*\/[0-9]*个：||g' tmp_all.txt > "txt/${city}.txt"
-sed -i 's/http:\/\///g; s/^/http:\/\//' "txt/${city}.txt"
-
-rm -f tmp_all.txt $speed_log
+rm -f $speed_log
 log_print "${city} 完成，输出txt文件保持测速从快到慢顺序"
 
 cleanup 0
