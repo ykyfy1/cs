@@ -16,38 +16,18 @@ LOG_DIR="logs"
 mkdir -p "${LOG_DIR}"
 LOG_FILE="${LOG_DIR}/scan_$(date +%Y%m%d_%H%M%S).log"
 
-# 临时文件列表，用于信号捕获清理
-TMP_FILE_LIST=()
+# 临时文件列表，运行结束统一清理
+TMP_FILES=()
 
-# ========= 修复cleanup函数：区分异常终止/正常结束 =========
-# $1=1 异常退出；$1=0 正常跑完当前城市
+# ========= 清理函数：区分异常终止/正常结束 =========
 cleanup() {
-    local exit_type="$1"
-    if [ "$exit_type" -eq 1 ];then
-        echo -e "\n⚠️  检测到脚本异常退出，开始清理临时文件..." | tee -a "${LOG_FILE}"
-        rm -f tmp_good_ip zubo_*.tmp tmp_all.txt "${TMP_FILE_LIST[@]}"
-        echo "✅ 临时文件清理完成" | tee -a "${LOG_FILE}"
-        exit 1
-    else
-        # 正常跑完单个城市：清理当前城市临时文件，不exit，返回主循环继续跑下一个城市
-        rm -f tmp_good_ip zubo_*.tmp tmp_all.txt
-        log_print "✅ 当前城市临时文件清理完毕，准备进入下一个城市"
-    fi
+    # 删除全部临时文件
+    rm -f "${TMP_FILES[@]}"
+    echo "临时文件清理完成" >> "${LOG_FILE}"
 }
+trap cleanup EXIT
 
-# 捕获异常信号: SIGINT(Ctrl+C), SIGTERM(进程被杀), SIGHUP
-trap 'cleanup 1' SIGINT SIGTERM SIGHUP
-
-# 自定义打印函数，同时输出控制台+写入日志
-log_print(){
-    if [ "$SAVE_LOG" -eq 1 ];then
-        echo "$1" | tee -a "${LOG_FILE}"
-    else
-        echo "$1"
-    fi
-}
-
-# 去除http前缀的工具函数，返回纯ip:port
+# 去除http前缀工具函数，返回纯ip:port
 strip_http(){
     local str="$1"
     str="${str#http://}"
@@ -56,153 +36,80 @@ strip_http(){
 }
 
 if [ $# -eq 0 ]; then
-  log_print "开始测试······"
-  log_print "在5秒内输入城市编号，0=批量跑全部城市"
-  log_print "1:北京  2:上海  3:广州"
-  read -t 5 -p "超时未输入,默认批量跑全部城市(0)" city_choice
-
-  if [ -z "$city_choice" ]; then
-      log_print "未检测到输入，批量执行全部城市"
-      city_choice=0
-  fi
-
-else
-  city_choice=$1
+  echo "用法：$0 [城市编号] | $0 0 代表全部城市合并测速"
+  exit 1
 fi
+city_choice="$1"
 
-# 自动创建目录防止报错
-mkdir -p ip txt template
-
-# ========= 多城市配置，自行修改stream组播地址 =========
+# 城市配置，和python采集脚本保持对应
 case $city_choice in
     1)
         city="Beijing_dianxin"
         stream="rtp/239.94.0.103:5140"
+        run_single=1
         ;;
     2)
         city="Shanghai_dianxin"
-        stream="rtp/替换成上海组播地址"
+        stream="rtp/239.94.0.103:5140"
+        run_single=1
         ;;
     3)
         city="Guangzhou_dianxin"
-        stream="rtp/替换成广州组播地址"
+        stream="rtp/239.94.0.103:5140"
+        run_single=1
         ;;
     0)
-        # 批量入口：串行依次跑1北京,2上海,3广州
-        for option in 1 2 3; do
-          bash "$0" "$option"
-        done
-        log_print "==================== 所有城市测速全部完成，开始全局合并排序 ===================="
+        # 多城市串行执行
+        echo "===== 开始多城市批量测速 =====" >> "${LOG_FILE}"
+        bash "$0" 1
+        bash "$0" 2
+        bash "$0" 3
+
+        # ====================== 全局合并逻辑，生成zubo.txt ======================
+        > tmp_merge_all.tmp
+        TMP_FILES+=("tmp_merge_all.tmp")
+
+        # 读取所有城市的tmp_speed文件，合并
+        cat ip/tmp_speed_*.txt 2>/dev/null >> tmp_merge_all.tmp
+
+        # 按原始字节速度降序排序，去重，取MERGE_TOP_COUNT条
+        sort -k1 -nr tmp_merge_all.tmp | awk '!seen[$2]++' | head -n ${MERGE_TOP_COUNT} > tmp_sort_all.tmp
+        TMP_FILES+=("tmp_sort_all.tmp")
+
+        > zubo.txt
+        while read -r raw_byte ip_raw; do
+            ip_raw=$(strip_http "$ip_raw")
+            ip_full="http://${ip_raw}"
+            sed "s|ipipip|$ip_full|g" template/template_Beijing_dianxin.txt >> zubo.txt
+        done < tmp_sort_all.tmp
+
+        echo "✅ 全局合并完成，zubo.txt生成完毕，共 $(wc -l < zubo.txt) 行" >> "${LOG_FILE}"
+        exit 0
         ;;
     *)
-        log_print "⚠️ 城市编号【$city_choice】未配置，直接退出"
-        cleanup 1
+        echo "❌ 无效城市编号"
+        exit 1
         ;;
 esac
 
-# ===================== 全局合并部分（生成zubo.txt，格式完全和Beijing_dianxin.txt一致）=====================
-if [ "$city_choice" -eq 0 ];then
-    merge_raw="tmp_merge_raw.txt"
-    > "$merge_raw"
-
-    log_print "====调试：查看ip目录速度文件===="
-    ls -la ip/
-    log_print "====调试：速度文件原始内容===="
-    cat ip/tmp_speed_*.txt | tee -a "${LOG_FILE}"
-    log_print "=============================="
-
-    # 读取每个城市保存好的【速度 + ip:port】进行全局排序
-    cat ip/tmp_speed_*.txt | awk '
-    function getnum(s){
-        if(s ~ /M/){return s*1024}
-        if(s ~ /k/){return s}
-        return 0
-    }
-    {
-        speed_val=$1
-        ip_port=$2
-        num=getnum(speed_val)
-        print num, ip_port
-    }' | sort -k1 -nr | awk -v top="$MERGE_TOP_COUNT" '
-    BEGIN{count=0}
-    !seen[$2]++{
-        if(count < top){
-            print $2
-            count++
-        }
-    }' > tmp_sort
-
-    # 过滤组播IP段224~239，得到纯净裸ip:port列表
-    awk '
-    {
-        split($1,iparr,":");
-        split(iparr[1],oct,".");
-        if(oct[1]>=224 && oct[1]<=239) next;
-        print $1
-    }' tmp_sort > "$merge_raw"
-    rm -f tmp_sort
-
-    # ===== 使用北京模板生成zubo.txt，格式和Beijing_dianxin.txt一模一样 =====
-    > zubo.txt
-    while read -r ip_raw; do
-        ip_full="http://${ip_raw}"
-        sed "s|ipipip|$ip_full|g" template/template_Beijing_dianxin.txt >> zubo.txt
-    done < "$merge_raw"
-    rm -f "$merge_raw"
-
-    log_print "✅ 全局合并完成，zubo.txt 使用#EXTINF模板格式，保留前${MERGE_TOP_COUNT}条"
-    log_print "==================== 全局合并完成 ===================="
-
-    # 清理临时速度文件和垃圾文件
-    rm -f ip/tmp_speed_*.txt
-    rm -f zubo_bf.txt
-    rm -f 组播_*.txt
-
-    log_print "📝 本次扫描日志保存至：${LOG_FILE}"
+# ========== 单城市测速流程 ==========
+good_ip_file="ip/good_${city}_ip.txt"
+if [ ! -f "$good_ip_file" ];then
+    echo "❌ $good_ip_file 不存在，跳过城市 ${city}" >> "${LOG_FILE}"
     exit 0
 fi
 
-# =========【单城市测速逻辑开始】=========
-if [ -z "$city" ];then
-    log_print "❌ city变量为空，退出本次扫描"
-    cleanup 1
-fi
+# 清理空行，去重
+sed '/^\s*$/d' "$good_ip_file" | sort | uniq > tmp_filter_ip.tmp
+TMP_FILES+=("tmp_filter_ip.tmp")
+mv tmp_filter_ip.tmp "$good_ip_file"
 
-time=$(date +%m%d%H%M)
-good_ip=ip/good_${city}_ip.txt
-result_ip=ip/result_${city}_ip.txt
-speed_log=speedtest_${city}_$time.log
-> $speed_log
+total_ip=$(wc -l < "$good_ip_file")
+echo "===== 城市 ${city}，待测IP总数: $total_ip =====" >> "${LOG_FILE}"
 
-log_print "======== 开始检索 ${city} ========"
-log_print "从 '${good_ip}' 读取Python预扫描存活IP，直接测速"
-
-if [ ! -f "$good_ip" ];then
-    log_print "❌ 错误：存活IP文件 $good_ip 不存在，跳过该城市"
-    cleanup 0
-fi
-
-sort "$good_ip" | uniq | sed '/^\s*$/d' > tmp_filter_ip
-mv tmp_filter_ip "$good_ip"
-
-lines=$(wc -l < "$good_ip")
-log_print "获取待测速IP总数：$lines"
-
-log_print "===== 待测速IP列表 ====="
-cat "$good_ip" | tee -a "${LOG_FILE}"
-log_print "========================"
-
-if [ "$lines" -eq 0 ];then
-    log_print "⚠️ IP列表为空，跳过当前城市"
-    cleanup 0
-fi
-
-log_print "开始并发测速，并发数：${SPEED_CONCURRENT}"
-
+# 测速函数
 speed_test(){
     local ip="$1"
-    local idx="$2"
-    local total="$3"
     local url="http://$ip/$stream"
     local raw_speed=""
     for ((r=0; r<=SPEED_RETRY; r++)); do
@@ -213,52 +120,53 @@ speed_test(){
     done
 
     if [[ "$raw_speed" =~ ^[0-9\.]+$ && $(echo "$raw_speed > 0" | bc) -eq 1 ]]; then
+        # 输出【原始字节数 IP】，用于排序，不带单位！
+        echo "$raw_speed $ip"
+        # 可读速度，仅写入日志
         if (( $(echo "$raw_speed >= 1048576" | bc -l) )); then
-            a=$(echo "scale=2; $raw_speed / 1048576" | bc)M
+            show_speed=$(echo "scale=2; $raw_speed / 1048576" | bc)M
         elif (( $(echo "$raw_speed >= 1024" | bc -l) )); then
-            a=$(echo "scale=2; $raw_speed / 1024" | bc)k
+            show_speed=$(echo "scale=2; $raw_speed / 1024" | bc)k
         else
-            a="${raw_speed}B"
+            show_speed="${raw_speed}B"
         fi
-        echo "$a $ip"
+        echo "【测速日志】$ip 速度：$show_speed" >> "${LOG_FILE}"
     fi
 }
 export -f speed_test
-export SPEED_RETRY stream
+export SPEED_RETRY stream LOG_FILE
 
-# 并发测速
-cat "$good_ip" | xargs -P ${SPEED_CONCURRENT} -I {} bash -c 'speed_test "{}"' > $speed_log
+# 并发测速输出结果
+> tmp_speed_result.tmp
+TMP_FILES+=("tmp_speed_result.tmp")
+cat "$good_ip_file" | xargs -P ${SPEED_CONCURRENT} -I {} bash -c 'speed_test "{}"' > tmp_speed_result.tmp
 
-log_print "测速完成，开始按速度降序排序"
-# 按速度从快到慢排序
-sort -k1 -nr $speed_log > $result_ip
+# 按原始字节降序排序
+sort -k1 -nr tmp_speed_result.tmp > ip/tmp_speed_${city}.tmp
 
-# 保存tmp_speed给全局合并使用
-cp "$result_ip" "ip/tmp_speed_${city}.txt"
+# 保存给全局合并使用
+cp ip/tmp_speed_${city}.tmp "ip/tmp_speed_${city}.txt"
 
-log_print "========= ${city} 测速排序结果 ========="
-cat "${result_ip}" | tee -a "${LOG_FILE}"
-log_print "========================================"
+echo "===== ${city} 测速排序完成 =====" >> "${LOG_FILE}"
 
-# 生成城市txt文件，使用模板
-> tmp_all.txt
+# 生成城市独立txt（#EXTINF模板格式）
+> tmp_city_out.tmp
+TMP_FILES+=("tmp_city_out.tmp")
 for ((n=1; n<=CITY_TOP_COUNT; n++));do
-    ip_raw=$(awk -v line="$n" 'NR==line{print $2}' "$result_ip")
+    ip_raw=$(awk -v line="$n" 'NR==line{print $2}' ip/tmp_speed_${city}.tmp)
     ip_raw=$(strip_http "$ip_raw")
+    if [ -z "$ip_raw" ];then continue;fi
+    # 过滤组播IP
     ip_only=$(echo "$ip_raw" | cut -d: -f1)
     first_oct=$(echo "$ip_only" | cut -d. -f1)
-    # 过滤组播IP
     if [ "$first_oct" -ge 224 ] && [ "$first_oct" -le 239 ];then
         continue
     fi
-    if [ -z "$ip_raw" ];then continue;fi
     ip_full="http://${ip_raw}"
-    sed "s|ipipip|$ip_full|g" template/template_${city}.txt >> tmp_all.txt
+    sed "s|ipipip|$ip_full|g" template/template_${city}.txt >> tmp_city_out.tmp
 done
 
-# 输出txt文件
-sed 's|第[0-9]*\/[0-9]*个：||g' tmp_all.txt | grep -v '///' > "txt/${city}.txt"
-rm -f tmp_all.txt $speed_log $result_ip
-log_print "${city} 测速完成，文件输出至 txt/${city}.txt"
+# 输出最终城市txt，清除多余前缀
+sed 's|第[0-9]*\/[0-9]*个：||g' tmp_city_out.tmp | grep -v '///' > "txt/${city}.txt"
 
-cleanup 0
+echo "✅ ${city} 已输出文件 txt/${city}.txt" >> "${LOG_FILE}"
