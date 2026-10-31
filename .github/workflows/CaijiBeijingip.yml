@@ -54,7 +54,7 @@ jobs:
         run: |
           cd $GITHUB_WORKSPACE
           python ./CaijiBeijingip.py
-          # ===== 修复这里：先判断zubo.txt存在才做备份，避免首次运行报错 =====
+          # 备份旧文件
           if [ -f "zubo.txt" ]; then
             cp zubo.txt zubo_bf.txt
             echo "✅ 已备份当前zubo.txt为zubo_bf.txt"
@@ -63,7 +63,6 @@ jobs:
             touch zubo_bf.txt
           fi
           bash ./CaijiBeijingip.sh 0
-          # 校验根目录zubo.txt，存在且非空才保留新文件，否则恢复备份
           NEW_ZUBO="./zubo.txt"
           if [ -f "$NEW_ZUBO" ] && [ -s "$NEW_ZUBO" ]; then
             echo "✅ 全局合并完成，zubo.txt生成成功"
@@ -73,7 +72,7 @@ jobs:
               cp zubo_bf.txt zubo.txt
               echo "✅ 已恢复备份文件"
             else
-              echo "ℹ️ 无有效旧备份，跳过恢复，不抛出错误"
+              echo "ℹ️ 无有效旧备份，跳过恢复"
             fi
           fi
 
@@ -88,18 +87,22 @@ jobs:
             zubo.txt
           retention-days: 7
 
+      # ===== 【修复点】：文件校验恢复完成之后，再执行git add =====
       - name: 更新源（文件变更才提交，无变化直接跳过）
         run: |
           cd $GITHUB_WORKSPACE
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
-
-          # 对比新zubo.txt 和备份 zubo_bf.txt，内容相同则标记无需提交
+          
+          # 先清空git暂存区，避免残留空文件
+          git reset HEAD .
+          
+          # 对比当前最终的zubo.txt 和备份 zubo_bf.txt
           if diff -q zubo.txt zubo_bf.txt >/dev/null ; then
             echo "ℹ️ 新源与旧源内容完全一致，无需提交，直接结束"
           else
             echo "✅ 源文件检测到更新，准备提交"
-            # 只提交zubo.txt 和 txt目录下城市结果文件
+            # 【现在才add最终文件】
             git add zubo.txt
             git add txt/
             if [[ -n $(git status --porcelain) ]]; then
