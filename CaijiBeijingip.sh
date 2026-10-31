@@ -253,7 +253,7 @@ done < $good_ip
 wait
 log_print "[测速进度] $i/$total_good (100%) 测速全部完成"
 
-# ===================== 关键修改1：排序时保留IP，后续统一加上http://，严格按速度降序 =====================
+# 测速结果排序，输出【纯ip:port】不带http
 log_print "测速结果排序（从快到慢）"
 awk '
 {
@@ -267,20 +267,20 @@ awk '
     else {num=0}
     print num,speed,ip
 }
-' $speed_log | sort -k1 -nr | awk '{print $2"  http://"$3}' > $result_ip
+' $speed_log | sort -k1 -nr | awk '{print $2"  "$3}' > $result_ip
 
 log_print "========= ${city} 排序完成，从快到慢列表 ========="
 awk '
 {
     gsub(/第[0-9]*\/[0-9]*个：/,"");
-    url=""
+    ip_raw=""
     speed=""
     for(i=1;i<=NF;i++){
-        if($i ~ /^http:\/\/[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+$/) url=$i
+        if($i ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+$/) ip_raw=$i
         if($i ~ /^[0-9]+\.?[0-9]*[kM]$/) speed=$i
     }
-    if(url!="" && speed!=""){
-        printf "%-4s %-25s %s\n",NR,url,speed
+    if(ip_raw!="" && speed!=""){
+        printf "%-4s %-25s %s\n",NR,"http://"$ip_raw,speed
     }
 }' "${result_ip}" | tee -a "${LOG_FILE}"
 log_print "=================================================="
@@ -295,13 +295,12 @@ for ((n=1; n<=CITY_TOP_COUNT; n++));do
         continue
     fi
     if [ -z "$ip_raw" ];then continue;fi
-    ip_full="$ip_raw"
+    # 重点：模板里面保留 #EXTINF 行，模板里的ipipip直接替换成 http://ip_raw
+    ip_full="http://${ip_raw}"
     sed "s|ipipip|$ip_full|g" template/template_${city}.txt >> tmp_all.txt
 done
 
 sed 's|第[0-9]*\/[0-9]*个：||g' tmp_all.txt | grep -v '///' > "txt/${city}.txt"
-# ===================== 关键修改2：删除反复删加http的sed，避免重复前缀 =====================
-# 删掉这两行：sed -i 's/http:\/\///g; s/^/http:\/\//' "txt/${city}.txt"
 rm -f tmp_all.txt $speed_log $result_ip
 log_print "${city} 测试完成，保留前${CITY_TOP_COUNT}条，生成纯净订阅文件：'txt/${city}.txt'"
 
