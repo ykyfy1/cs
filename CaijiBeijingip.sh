@@ -134,7 +134,7 @@ if [ "$city_choice" -eq 0 ];then
         }
     }' > $merge_output
 
-    # 【修改】不再删除http，仅清除"第x/x个："脏文本，过滤组播IP
+    # 仅清除"第x/x个："脏文本，保留http
     sed -i 's|第[0-9]*\/[0-9]*个：||g' $merge_output
     awk '
     {
@@ -270,6 +270,7 @@ log_print "[测速进度] $i/$total_good (100%) 测速全部完成"
 
 log_print "测速结果排序"
 # 转换k/M为数值用于排序：k=千，M=兆，统一转成KB排序
+# ✅ 修改点：不再提前加http，只保存裸IP:端口
 awk '
 {
     for(i=1;i<=NF;i++){
@@ -282,7 +283,7 @@ awk '
     else {num=0}
     print num,speed,ip
 }
-' $speed_log | sort -k1 -nr | awk '{print $2"  http://"$3}' > $result_ip
+' $speed_log | sort -k1 -nr | awk '{print $2"  "$3}' > $result_ip
 
 # ============单城市排序输出：过滤组播+序号+对齐排版============
 log_print "========= ${city} 排序完成，从快到慢列表 ========="
@@ -305,21 +306,23 @@ awk '
 }' "${result_ip}" | tee -a "${LOG_FILE}"
 log_print "=================================================="
 
-# ==========单个城市取前 CITY_TOP_COUNT 条，生成m3u，保留http前缀 ==========
+# ==========单个城市取前 CITY_TOP_COUNT 条，生成m3u，**在这里一次性添加http，只加一次** ==========
 > tmp_all.txt
 for ((n=1; n<=CITY_TOP_COUNT; n++));do
-    # 提取IP，保留http，仅清理"第x/x个："脏文本
-    ip=$(awk -v line="$n" 'NR==line{print $2}' $result_ip | sed 's|第[0-9]*\/[0-9]*个：||')
+    # 取出裸IP，不带http
+    ip_raw=$(awk -v line="$n" 'NR==line{print $2}' $result_ip | sed 's|第[0-9]*\/[0-9]*个：||')
     # 过滤组播地址
-    ip_only=$(echo "$ip" | sed 's|http://||' | cut -d: -f1)
+    ip_only=$(echo "$ip_raw" | cut -d: -f1)
     first_oct=$(echo "$ip_only" | cut -d. -f1)
     if [ "$first_oct" -ge 224 ] && [ "$first_oct" -le 239 ];then
         continue
     fi
-    if [ -z "$ip" ];then continue;fi
-    sed "s|ipipip|$ip|g" template/template_${city}.txt >> tmp_all.txt
+    if [ -z "$ip_raw" ];then continue;fi
+    # 只在这里添加一次 http://
+    ip_full="http://${ip_raw}"
+    sed "s|ipipip|$ip_full|g" template/template_${city}.txt >> tmp_all.txt
 done
-# 只清理脏文字，**保留http://**
+# 只清理脏文字，保留http://
 sed 's|第[0-9]*\/[0-9]*个：||g' tmp_all.txt | grep -v '///' > "txt/${city}.txt"
 rm -f tmp_all.txt $speed_log $result_ip
 log_print "${city} 测试完成，保留前${CITY_TOP_COUNT}条，生成纯净订阅文件：'txt/${city}.txt'"
