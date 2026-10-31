@@ -100,9 +100,9 @@ case $city_choice in
         ;;
 esac
 
-# ===================== 全局合并部分（生成zubo.txt，修复IP和模板跨城市错乱问题）=====================
+# ===================== 全局合并部分（修复清空zubo致命BUG）=====================
 if [ "$city_choice" -eq 0 ];then
-    > zubo.txt
+    > zubo_merge_raw.txt
 
     # 城市列表，和上面case里的城市一一对应
     city_arr=(
@@ -118,9 +118,9 @@ if [ "$city_choice" -eq 0 ];then
         log_print "==== 正在处理城市：${city_name} ===="
         log_print "测速文件：$speed_file  模板文件：$template_file"
 
-        # 判断文件是否存在，防止城市无测速结果报错
-        if [ ! -f "$speed_file" ] || [ ! -f "$template_file" ];then
-            log_print "⚠️ 跳过【${city_name}】，测速文件/模板缺失"
+        # 判断文件是否存在，并且文件不为空
+        if [ ! -f "$speed_file" ] || [ ! -s "$speed_file" ] || [ ! -f "$template_file" ];then
+            log_print "⚠️ 跳过【${city_name}】，测速文件/模板缺失或者测速结果为空"
             continue
         fi
 
@@ -154,20 +154,19 @@ if [ "$city_choice" -eq 0 ];then
             print $1
         }' tmp_city_ip > tmp_city_ip_filtered
 
-        # 读取当前城市IP，只套当前城市模板写入zubo.txt
+        # 读取当前城市IP，只套当前城市模板写入临时合并文件 zubo_merge_raw.txt
         while read -r ip_raw; do
             ip_full="http://${ip_raw}"
-            sed "s|ipipip|$ip_full|g" "$template_file" >> zubo.txt
+            sed "s|ipipip|$ip_full|g" "$template_file" >> zubo_merge_raw.txt
         done < tmp_city_ip_filtered
 
         rm -f tmp_city_ip tmp_city_ip_filtered
     done
 
-    # 全部城市合并完成后，全局整体排序，保留MERGE_TOP_COUNT条
     log_print "✅ 全部城市频道合并完成，开始全局速度排序，保留前${MERGE_TOP_COUNT}条"
-    # 临时中转排序文件
-    > zubo_sort.tmp
-    # 提取速度值，全局排序
+
+    # 提取速度，对zubo_merge_raw.txt进行全局排序，输出最终zubo.txt
+    > zubo.txt
     awk '
     /#EXTINF:-1/ {
         getline ip_line
@@ -179,16 +178,16 @@ if [ "$city_choice" -eq 0 ];then
     /speed=/{
         sub(/.*speed=/,"")
         sub(/,.*/,"")
-        print $0,ip
-    }' zubo.txt | sort -k1 -nr | head -n ${MERGE_TOP_COUNT} > zubo_rank.tmp
+        sp=$0
+        print sp,ip
+    }' zubo_merge_raw.txt | sort -k1 -nr | head -n ${MERGE_TOP_COUNT} > zubo_rank.tmp
 
-    # 重建最终zubo.txt，按全局排序顺序输出
-    > zubo.txt
+    # 重建最终zubo.txt，从原始合并文件读取内容，不再读取已清空的zubo.txt
     while read -r sp ip;do
-        grep "#EXTINF.*${ip}" zubo.txt >> zubo.txt
+        grep "#EXTINF.*${ip}" zubo_merge_raw.txt >> zubo.txt
     done < zubo_rank.tmp
 
-    rm -f zubo_sort.tmp zubo_rank.tmp
+    rm -f zubo_merge_raw.txt zubo_rank.tmp
 
     log_print "✅ 全局合并完成，zubo.txt 使用#EXTINF模板格式，保留前${MERGE_TOP_COUNT}条"
     log_print "==================== 全局合并完成 ===================="
