@@ -100,34 +100,29 @@ case $city_choice in
         ;;
 esac
 
-# ===================== 批量全局合并（关键改动）=====================
+# ===================== 批量全局合并（修复版：读取带速度的ip/tmp_speed_*.txt）=====================
 if [ "$city_choice" -eq 0 ];then
     merge_output="txt/all_city_sorted.txt"
     > "$merge_output"
 
-    # 1.提取速度数值+裸IP，全局按速度降序排序，IP:端口去重
-    cat txt/*.txt | awk '
+    log_print "====调试：查看ip目录速度文件===="
+    ls -la ip/
+    log_print "====调试：速度文件原始内容===="
+    cat ip/tmp_speed_*.txt | tee -a "${LOG_FILE}"
+    log_print "=============================="
+
+    # 读取每个城市保存好的【速度 + ip:port】进行全局排序
+    cat ip/tmp_speed_*.txt | awk '
     function getnum(s){
         if(s ~ /M/){return s*1024}
         if(s ~ /k/){return s}
         return 0
     }
     {
-        speed=""
-        ip_port=""
-        for(i=1;i<=NF;i++){
-            if($i ~ /http:\/\/[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+/){
-                ip_port=$i
-                sub(/http:\/\//,"",ip_port)
-            }
-            if($i ~ /^[0-9]+\.?[0-9]*[kM]$/){
-                speed=$i
-            }
-        }
-        if(ip_port!="" && speed!=""){
-            num=getnum(speed)
-            print num, ip_port
-        }
+        speed_val=$1
+        ip_port=$2
+        num=getnum(speed_val)
+        print num, ip_port
     }' | sort -k1 -nr | awk -v top="$MERGE_TOP_COUNT" '
     BEGIN{count=0}
     !seen[$2]++{
@@ -137,7 +132,7 @@ if [ "$city_choice" -eq 0 ];then
         }
     }' > tmp_sort
 
-    # 2.过滤组播IP（224~239开头全部删掉）
+    # 过滤组播IP段224~239
     awk '
     {
         split($1,iparr,":");
@@ -147,7 +142,7 @@ if [ "$city_choice" -eq 0 ];then
     }' tmp_sort > "$merge_output"
     rm -f tmp_sort
 
-    # 3.复制到zubo.txt，顺序和all_city_sorted.txt完全一致；统一只加一次http://
+    # 复制到zubo.txt，统一添加http://前缀
     cp "$merge_output" zubo.txt
     sed -i 's/^/http:\/\//' zubo.txt
 
@@ -156,7 +151,8 @@ if [ "$city_choice" -eq 0 ];then
     awk '{printf "%-4s %-22s\n",NR,$0}' zubo.txt | tee -a "${LOG_FILE}"
     log_print "====================================================================="
 
-    # 自动清理不需要的文件
+    # 清理临时速度文件和垃圾文件
+    rm -f ip/tmp_speed_*.txt
     rm -f zubo_bf.txt
     rm -f 组播_*.txt
 
@@ -263,6 +259,9 @@ awk '
 }
 ' $speed_log | sort -k1 -nr | awk '{print $2"  "$3}' > $result_ip
 
+# ========== 关键新增：保存带速度的文件，供全局合并排序 ==========
+cp "$result_ip" "ip/tmp_speed_${city}.txt"
+
 log_print "========= ${city} 排序完成，从快到慢列表 ========="
 awk '
 {
@@ -283,12 +282,14 @@ awk '
 }' "${result_ip}" | tee -a "${LOG_FILE}"
 log_print "=================================================="
 
+# 读取template模板，替换ipipip占位符，输出txt文件（保留#EXTINF行，文件后缀txt）
 > tmp_all.txt
 for ((n=1; n<=CITY_TOP_COUNT; n++));do
     ip_raw=$(awk -v line="$n" 'NR==line{print $2}' $result_ip | sed 's|第[0-9]*\/[0-9]*个：||')
     ip_raw=$(strip_http "$ip_raw")
     ip_only=$(echo "$ip_raw" | cut -d: -f1)
     first_oct=$(echo "$ip_only" | cut -d. -f1)
+    # 过滤组播IP
     if [ "$first_oct" -ge 224 ] && [ "$first_oct" -le 239 ];then
         continue
     fi
@@ -297,10 +298,9 @@ for ((n=1; n<=CITY_TOP_COUNT; n++));do
     sed "s|ipipip|$ip_full|g" template/template_${city}.txt >> tmp_all.txt
 done
 
+# 输出为txt，**保留#EXTINF行，和截图格式完全一致**
 sed 's|第[0-9]*\/[0-9]*个：||g' tmp_all.txt | grep -v '///' > "txt/${city}.txt"
-# 清理单城市文件多重http，只保留1个前缀
-sed -i 's/http:\/\///g; s/^/http:\/\//' "txt/${city}.txt"
 rm -f tmp_all.txt $speed_log $result_ip
-log_print "${city} 测试完成，保留前${CITY_TOP_COUNT}条，生成纯净订阅文件：'txt/${city}.txt'"
+log_print "${city} 测试完成，保留前${CITY_TOP_COUNT}条，生成txt文件：'txt/${city}.txt'"
 
 cleanup 0
