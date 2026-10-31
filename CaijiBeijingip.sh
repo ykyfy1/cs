@@ -58,7 +58,7 @@ strip_http(){
 if [ $# -eq 0 ]; then
   log_print "开始测试······"
   log_print "在5秒内输入城市编号，0=批量跑全部城市"
-  log_print "1:北京  2:上海  3:广州"
+  log_print "1:四川  2:上海  3:广东"
   read -t 5 -p "超时未输入,默认批量跑全部城市(0)" city_choice
 
   if [ -z "$city_choice" ]; then
@@ -76,7 +76,7 @@ mkdir -p ip txt template
 # ========= 多城市配置，自行修改stream组播地址 =========
 case $city_choice in
     1)
-        city="Beijing_dianxin"
+        city="Sichuan_dianxin"
         stream="rtp/239.94.0.103:5140"
         ;;
     2)
@@ -88,7 +88,7 @@ case $city_choice in
         stream="rtp/替换成广州组播地址"
         ;;
     0)
-        # 批量入口：串行依次跑1北京,2上海,3广州
+        # 批量入口：串行依次跑1四川,2上海,3广东
         for option in 1 2 3; do
           bash "$0" "$option"
         done
@@ -146,7 +146,7 @@ if [ "$city_choice" -eq 0 ];then
     > zubo.txt
     while read -r ip_raw; do
         ip_full="http://${ip_raw}"
-        sed "s|ipipip|$ip_full|g" template/template_Beijing_dianxin.txt >> zubo.txt
+        sed "s|ipipip|$ip_full|g" template/template_Sichuan_dianxin.txt >> zubo.txt
     done < "$merge_raw"
     rm -f "$merge_raw"
 
