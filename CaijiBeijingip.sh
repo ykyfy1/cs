@@ -100,56 +100,95 @@ case $city_choice in
         ;;
 esac
 
-# ===================== 全局合并部分（生成zubo.txt，格式完全和Beijing_dianxin.txt一致）=====================
+# ===================== 全局合并部分（生成zubo.txt，修复IP和模板跨城市错乱问题）=====================
 if [ "$city_choice" -eq 0 ];then
-    merge_raw="tmp_merge_raw.txt"
-    > "$merge_raw"
-
-    log_print "====调试：查看ip目录速度文件===="
-    ls -la ip/
-    log_print "====调试：速度文件原始内容===="
-    cat ip/tmp_speed_*.txt | tee -a "${LOG_FILE}"
-    log_print "=============================="
-
-    # 读取每个城市保存好的【速度 + ip:port】进行全局排序
-    cat ip/tmp_speed_*.txt | awk '
-    function getnum(s){
-        if(s ~ /M/){return s*1024}
-        if(s ~ /k/){return s}
-        return 0
-    }
-    {
-        speed_val=$1
-        ip_port=$2
-        num=getnum(speed_val)
-        print num, ip_port
-    }' | sort -k1 -nr | awk -v top="$MERGE_TOP_COUNT" '
-    BEGIN{count=0}
-    !seen[$2]++{
-        if(count < top){
-            print $2
-            count++
-        }
-    }' > tmp_sort
-
-    # 过滤组播IP段224~239，得到纯净裸ip:port列表
-    awk '
-    {
-        split($1,iparr,":");
-        split(iparr[1],oct,".");
-        if(oct[1]>=224 && oct[1]<=239) next;
-        print $1
-    }' tmp_sort > "$merge_raw"
-    rm -f tmp_sort
-
-    # ===== 使用北京模板生成zubo.txt，格式和Beijing_dianxin.txt一模一样 =====
     > zubo.txt
-    while read -r ip_raw; do
-        ip_full="http://${ip_raw}"
-        sed "s|ipipip|$ip_full|g" template/template_Beijing_dianxin.txt >> zubo.txt
-        sed "s|ipipip|$ip_full|g" template/template_Shanghai_dianxin.txt >> zubo.txt
-    done < "$merge_raw"
-    rm -f "$merge_raw"
+
+    # 城市列表，和上面case里的城市一一对应
+    city_arr=(
+        "Beijing_dianxin"
+        "Shanghai_dianxin"
+        "Guangzhou_dianxin"
+    )
+
+    for city_name in "${city_arr[@]}"; do
+        speed_file="ip/tmp_speed_${city_name}.txt"
+        template_file="template/template_${city_name}.txt"
+
+        log_print "==== 正在处理城市：${city_name} ===="
+        log_print "测速文件：$speed_file  模板文件：$template_file"
+
+        # 判断文件是否存在，防止城市无测速结果报错
+        if [ ! -f "$speed_file" ] || [ ! -f "$template_file" ];then
+            log_print "⚠️ 跳过【${city_name}】，测速文件/模板缺失"
+            continue
+        fi
+
+        # 本城市内部：按速度降序、去重、取CITY_TOP_COUNT条，过滤组播
+        awk '
+        function getnum(s){
+            if(s ~ /M/){return s*1024}
+            if(s ~ /k/){return s}
+            return 0
+        }
+        {
+            speed_val=$1
+            ip_port=$2
+            num=getnum(speed_val)
+            print num, ip_port
+        }' "$speed_file" | sort -k1 -nr | awk -v top="$CITY_TOP_COUNT" '
+        BEGIN{count=0}
+        !seen[$2]++{
+            if(count < top){
+                print $2
+                count++
+            }
+        }' > tmp_city_ip
+
+        # 过滤组播IP
+        awk '
+        {
+            split($1,iparr,":");
+            split(iparr[1],oct,".");
+            if(oct[1]>=224 && oct[1]<=239) next;
+            print $1
+        }' tmp_city_ip > tmp_city_ip_filtered
+
+        # 读取当前城市IP，只套当前城市模板写入zubo.txt
+        while read -r ip_raw; do
+            ip_full="http://${ip_raw}"
+            sed "s|ipipip|$ip_full|g" "$template_file" >> zubo.txt
+        done < tmp_city_ip_filtered
+
+        rm -f tmp_city_ip tmp_city_ip_filtered
+    done
+
+    # 全部城市合并完成后，全局整体排序，保留MERGE_TOP_COUNT条
+    log_print "✅ 全部城市频道合并完成，开始全局速度排序，保留前${MERGE_TOP_COUNT}条"
+    # 临时中转排序文件
+    > zubo_sort.tmp
+    # 提取速度值，全局排序
+    awk '
+    /#EXTINF:-1/ {
+        getline ip_line
+        sub(/http:\/\//,"",ip_line)
+        split(ip_line,ipp,":")
+        ip=ipp[1]
+        next
+    }
+    /speed=/{
+        sub(/.*speed=/,"")
+        sub(/,.*/,"")
+        print $0,ip
+    }' zubo.txt | sort -k1 -nr | head -n ${MERGE_TOP_COUNT} > zubo_rank.tmp
+
+    # 重建最终zubo.txt，按全局排序顺序输出
+    > zubo.txt
+    while read -r sp ip;do
+        grep "#EXTINF.*${ip}" zubo.txt >> zubo.txt
+    done < zubo_rank.tmp
+
+    rm -f zubo_sort.tmp zubo_rank.tmp
 
     log_print "✅ 全局合并完成，zubo.txt 使用#EXTINF模板格式，保留前${MERGE_TOP_COUNT}条"
     log_print "==================== 全局合并完成 ===================="
