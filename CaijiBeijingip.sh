@@ -34,8 +34,13 @@ strip_http(){
     echo "$str"
 }
 
+# 控制台打印函数：输出到控制台+日志，使用stderr，不污染stdout
+log_print(){
+    echo "$1" | tee -a "${LOG_FILE}" >&2
+}
+
 if [ $# -eq 0 ]; then
-  echo "用法：$0 [城市编号] | $0 0 代表全部城市合并测速"
+  log_print "用法：$0 [城市编号] | $0 0 代表全部城市合并测速"
   exit 1
 fi
 city_choice="$1"
@@ -58,7 +63,7 @@ case $city_choice in
         run_single=1
         ;;
     0)
-        echo "===== 【GA控制台】开始多城市批量测速 =====" | tee -a "${LOG_FILE}"
+        log_print "===== 【GA控制台】开始多城市批量测速 ====="
         bash "$0" 1
         bash "$0" 2
         bash "$0" 3
@@ -66,7 +71,7 @@ case $city_choice in
         > tmp_merge_all.tmp
         TMP_FILES+=("tmp_merge_all.tmp")
         cat ip/tmp_speed_*.txt 2>/dev/null >> tmp_merge_all.tmp
-        echo "【GA控制台】合并的测速总行数: $(wc -l < tmp_merge_all.tmp)" | tee -a "${LOG_FILE}"
+        log_print "【GA控制台】合并的测速总行数: $(wc -l < tmp_merge_all.tmp)"
 
         sort -k1 -nr tmp_merge_all.tmp | awk '!seen[$2]++' | head -n ${MERGE_TOP_COUNT} > tmp_sort_all.tmp
         TMP_FILES+=("tmp_sort_all.tmp")
@@ -78,44 +83,43 @@ case $city_choice in
             sed "s|ipipip|$ip_full|g" template/template_Beijing_dianxin.txt >> zubo.txt
         done < tmp_sort_all.tmp
 
-        echo "✅ 全局合并完成，zubo.txt生成完毕，共 $(wc -l < zubo.txt) 行" | tee -a "${LOG_FILE}"
+        log_print "✅ 全局合并完成，zubo.txt生成完毕，共 $(wc -l < zubo.txt) 行"
         exit 0
         ;;
     *)
-        echo "❌ 无效城市编号"
+        log_print "❌ 无效城市编号"
         exit 1
         ;;
 esac
 
 # ========== 单城市测速流程 ==========
 good_ip_file="ip/good_${city}_ip.txt"
-echo "【GA控制台】城市 ${city}，待测文件路径: $good_ip_file" | tee -a "${LOG_FILE}"
+log_print "【GA控制台】城市 ${city}，待测文件路径: $good_ip_file"
 if [ ! -f "$good_ip_file" ];then
-    echo "❌ $good_ip_file 不存在，跳过城市 ${city}" | tee -a "${LOG_FILE}"
+    log_print "❌ $good_ip_file 不存在，跳过城市 ${city}"
     exit 0
 fi
 
 # 打印文件行数，确认文件读取正常
 file_line=$(wc -l < "$good_ip_file")
-echo "【GA控制台】$good_ip_file 文件行数：$file_line" | tee -a "${LOG_FILE}"
+log_print "【GA控制台】$good_ip_file 文件行数：$file_line"
 
 # 清理空行，去重
 sed '/^\s*$/d' "$good_ip_file" | sort | uniq > tmp_filter_ip.tmp
 TMP_FILES+=("tmp_filter_ip.tmp")
 mv tmp_filter_ip.tmp "$good_ip_file"
 total_ip=$(wc -l < "$good_ip_file")
-echo "===== 【GA控制台】城市 ${city}，去重后待测IP总数: $total_ip =====" | tee -a "${LOG_FILE}"
+log_print "===== 【GA控制台】城市 ${city}，去重后待测IP总数: $total_ip ====="
 
-# 测速函数【修复bc判断语法错误】
+# 测速函数【修复流污染问题，日志全部输出到stderr】
 speed_test(){
     local ip="$1"
     local url="http://$ip/$stream"
-    echo "DEBUG: 测试地址 $url" | tee -a "${LOG_FILE}"
+    echo "DEBUG: 测试地址 $url" >&2
     local raw_speed=""
     for ((r=0; r<=SPEED_RETRY; r++)); do
         raw_speed=$(curl --connect-timeout 3 --max-time 10 -o /dev/null -w "%{speed_download}" "$url" 2>/dev/null)
         if [[ "$raw_speed" =~ ^[0-9\.]+$ ]];then
-            # bc判断返回1代表大于0
             if [ $(echo "$raw_speed > 0" | bc -l) -eq 1 ];then
                 break
             fi
@@ -123,9 +127,9 @@ speed_test(){
     done
 
     if [[ "$raw_speed" =~ ^[0-9\.]+$ && $(echo "$raw_speed > 0" | bc -l) -eq 1 ]]; then
-        # 输出【原始字节数 IP】，用于排序，不带单位！
+        # 仅这一行输出到stdout，存入测速结果文件！
         echo "$raw_speed $ip"
-        # 可读速度，仅写入日志，修复判断语法
+        # 日志输出到stderr，不会污染测速数据
         if [ $(echo "$raw_speed >= 1048576" | bc -l) -eq 1 ]; then
             show_speed=$(echo "scale=2; $raw_speed / 1048576" | bc)M
         elif [ $(echo "$raw_speed >= 1024" | bc -l) -eq 1 ]; then
@@ -133,27 +137,27 @@ speed_test(){
         else
             show_speed="${raw_speed}B"
         fi
-        echo "【测速成功】$ip 速度：$show_speed" | tee -a "${LOG_FILE}"
+        echo "【测速成功】$ip 速度：$show_speed" >&2
     else
-        echo "【测速失败】$ip raw_speed=$raw_speed" | tee -a "${LOG_FILE}"
+        echo "【测速失败】$ip raw_speed=$raw_speed" >&2
     fi
 }
 export -f speed_test
-export SPEED_RETRY stream LOG_FILE
+export SPEED_RETRY stream
 
 > tmp_speed_result.tmp
 TMP_FILES+=("tmp_speed_result.tmp")
-echo "【GA控制台】准备启动并发测速，并发数：${SPEED_CONCURRENT}" | tee -a "${LOG_FILE}"
+log_print "【GA控制台】准备启动并发测速，并发数：${SPEED_CONCURRENT}"
 
-# 并发测速
+# 并发测速：只有stdout内容写入tmp_speed_result.tmp，调试日志全部丢stderr
 cat "$good_ip_file" | xargs -P ${SPEED_CONCURRENT} -I {} bash -c 'speed_test "{}"' > tmp_speed_result.tmp
 
 valid_line=$(wc -l < tmp_speed_result.tmp)
-echo "【GA控制台】本次测速，拿到有效速度记录行数：$valid_line" | tee -a "${LOG_FILE}"
+log_print "【GA控制台】本次测速，拿到有效速度记录行数：$valid_line"
 
 sort -k1 -nr tmp_speed_result.tmp > ip/tmp_speed_${city}.tmp
 cp ip/tmp_speed_${city}.tmp "ip/tmp_speed_${city}.txt"
-echo "===== ${city} 测速排序完成 =====" | tee -a "${LOG_FILE}"
+log_print "===== ${city} 测速排序完成 ====="
 
 # 生成城市独立txt
 > tmp_city_out.tmp
@@ -164,6 +168,7 @@ for ((n=1; n<=CITY_TOP_COUNT; n++));do
     if [ -z "$ip_raw" ];then continue;fi
     ip_only=$(echo "$ip_raw" | cut -d: -f1)
     first_oct=$(echo "$ip_only" | cut -d. -f1)
+    # 过滤组播地址 224~239
     if [ "$first_oct" -ge 224 ] && [ "$first_oct" -le 239 ];then
         continue
     fi
@@ -171,5 +176,6 @@ for ((n=1; n<=CITY_TOP_COUNT; n++));do
     sed "s|ipipip|$ip_full|g" template/template_${city}.txt >> tmp_city_out.tmp
 done
 
+# 清理输出内容：去掉http、去掉"第x/x个："这类多余文字
 sed 's|第[0-9]*\/[0-9]*个：||g' tmp_city_out.tmp | grep -v '///' > "txt/${city}.txt"
-echo "✅ ${city} 已输出文件 txt/${city}.txt" | tee -a "${LOG_FILE}"
+log_print "✅ ${city} 已输出文件 txt/${city}.txt"
