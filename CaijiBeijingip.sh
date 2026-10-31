@@ -1,181 +1,100 @@
-#!/bin/bash
+name: CaijiBeijingip
+permissions:
+  contents: write
+on:
+  #schedule:
+    #- cron: "01 20 * * *"
+  workflow_dispatch:
+jobs:
+  run-script:
+    runs-on: ubuntu-latest
+    # 可选：设置job最长运行时间，防止卡死
+    timeout-minutes: 60
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
 
-# ====================== 全局可配置参数（GA专用）======================
-NC_CONCURRENT=12        # 端口探测并发，GA建议 8~12
-SPEED_CONCURRENT=10     # 测速curl并发，GA建议 8~10
-PROGRESS_STEP=20        # 每处理多少个IP打印一次进度
-NC_RETRY=1              # 端口探测失败重试次数（0=关闭重试）
-SPEED_RETRY=0           # 测速curl失败重试次数（0=关闭，1=重试1次）
-CITY_TOP_COUNT=30       # 单个城市结果保留前N条
-MERGE_TOP_COUNT=100     # 合并全部城市后保留前N条
-SAVE_LOG=1              # 1=保存日志，0=关闭日志保存
-# ====================================================================
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: 3.11
 
-# 日志文件名称，带时间戳
-LOG_DIR="logs"
-mkdir -p "${LOG_DIR}"
-LOG_FILE="${LOG_DIR}/scan_$(date +%Y%m%d_%H%M%S).log"
+      - name: 安装系统依赖(bc,sed等)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y sed bc || true
+          bc --version || true
 
-# 临时文件列表，运行结束统一清理
-TMP_FILES=()
+      - name: 安装python依赖
+        run: |
+          pip install aiohttp
+          pip install -r requirements.txt
 
-# ========= 清理函数：区分异常终止/正常结束 =========
-cleanup() {
-    rm -f "${TMP_FILES[@]}"
-    echo "临时文件清理完成" | tee -a "${LOG_FILE}"
-}
-trap cleanup EXIT
+      # 提前创建脚本需要的目录
+      - name: 创建输出目录
+        run: |
+          mkdir -p txt logs ip template
 
-# 去除http前缀工具函数，返回纯ip:port
-strip_http(){
-    local str="$1"
-    str="${str#http://}"
-    str="${str#https://}"
-    echo "$str"
-}
+      # 新增：自动清理7天前的旧日志
+      - name: 清理7天前旧日志
+        run: |
+          find logs -type f -name "scan_*.log" -mtime +7 -delete
+          echo "✅ 已删除logs目录下7天前的日志文件"
 
-# 控制台打印函数：输出到控制台+日志，使用stderr，不污染stdout
-log_print(){
-    echo "$1" | tee -a "${LOG_FILE}" >&2
-}
+      # 新增：清理txt目录超过7天的旧结果文件
+      - name: 清理txt目录过期结果文件
+        run: |
+          find txt -type f -name "*.txt" -mtime +7 -delete
+          echo "✅ 已删除txt目录下7天前的txt结果文件"
 
-if [ $# -eq 0 ]; then
-  log_print "用法：$0 [城市编号] | $0 0 代表全部城市合并测速"
-  exit 1
-fi
-city_choice="$1"
+      # =========【多城市版本 + 文件保护：失败不覆盖zubo.txt】=========
+      - name: 获取源 + 多城市测速处理
+        run: |
+          cd $GITHUB_WORKSPACE
+          python ./CaijiBeijingip.py
+          # 备份原有zubo.txt
+          cp zubo.txt zubo_bf.txt
+          bash ./CaijiBeijingip.sh 0
+          # 校验根目录zubo.txt，存在且非空才保留新文件，否则恢复备份
+          NEW_ZUBO="./zubo.txt"
+          if [ -f "$NEW_ZUBO" ] && [ -s "$NEW_ZUBO" ]; then
+            echo "✅ 全局合并完成，zubo.txt生成成功"
+          else
+            echo "⚠️ 警告：新zubo.txt不存在或者是空！恢复旧备份文件"
+            cp zubo_bf.txt zubo.txt
+          fi
 
-# 城市配置，和python采集脚本保持对应
-case $city_choice in
-    1)
-        city="Beijing_dianxin"
-        stream="udp/239.94.0.103:5140"
-        run_single=1
-        ;;
-    2)
-        city="Shanghai_dianxin"
-        stream="udp/239.94.0.103:5140"
-        run_single=1
-        ;;
-    3)
-        city="Guangzhou_dianxin"
-        stream="udp/239.94.0.103:5140"
-        run_single=1
-        ;;
-    0)
-        log_print "===== 【GA控制台】开始多城市批量测速 ====="
-        bash "$0" 1
-        bash "$0" 2
-        bash "$0" 3
+      - name: 上传扫描结果&日志到Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: scan-result-${{ github.run_id }}
+          path: |
+            txt/
+            logs/
+            ip/
+            zubo.txt
+          retention-days: 7
 
-        > tmp_merge_all.tmp
-        TMP_FILES+=("tmp_merge_all.tmp")
-        cat ip/tmp_speed_*.txt 2>/dev/null >> tmp_merge_all.tmp
-        log_print "【GA控制台】合并的测速总行数: $(wc -l < tmp_merge_all.tmp)"
+      - name: 更新源（文件变更才提交，无变化直接跳过）
+        run: |
+          cd $GITHUB_WORKSPACE
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
 
-        sort -k1 -nr tmp_merge_all.tmp | awk '!seen[$2]++' | head -n ${MERGE_TOP_COUNT} > tmp_sort_all.tmp
-        TMP_FILES+=("tmp_sort_all.tmp")
-
-        > zubo.txt
-        while read -r raw_byte ip_raw; do
-            ip_raw=$(strip_http "$ip_raw")
-            ip_full="http://${ip_raw}"
-            sed "s|ipipip|$ip_full|g" template/template_Beijing_dianxin.txt >> zubo.txt
-        done < tmp_sort_all.tmp
-
-        log_print "✅ 全局合并完成，zubo.txt生成完毕，共 $(wc -l < zubo.txt) 行"
-        exit 0
-        ;;
-    *)
-        log_print "❌ 无效城市编号"
-        exit 1
-        ;;
-esac
-
-# ========== 单城市测速流程 ==========
-good_ip_file="ip/good_${city}_ip.txt"
-log_print "【GA控制台】城市 ${city}，待测文件路径: $good_ip_file"
-if [ ! -f "$good_ip_file" ];then
-    log_print "❌ $good_ip_file 不存在，跳过城市 ${city}"
-    exit 0
-fi
-
-# 打印文件行数，确认文件读取正常
-file_line=$(wc -l < "$good_ip_file")
-log_print "【GA控制台】$good_ip_file 文件行数：$file_line"
-
-# 清理空行，去重
-sed '/^\s*$/d' "$good_ip_file" | sort | uniq > tmp_filter_ip.tmp
-TMP_FILES+=("tmp_filter_ip.tmp")
-mv tmp_filter_ip.tmp "$good_ip_file"
-total_ip=$(wc -l < "$good_ip_file")
-log_print "===== 【GA控制台】城市 ${city}，去重后待测IP总数: $total_ip ====="
-
-# 测速函数【修复流污染问题，日志全部输出到stderr】
-speed_test(){
-    local ip="$1"
-    local url="http://$ip/$stream"
-    echo "DEBUG: 测试地址 $url" >&2
-    local raw_speed=""
-    for ((r=0; r<=SPEED_RETRY; r++)); do
-        raw_speed=$(curl --connect-timeout 3 --max-time 10 -o /dev/null -w "%{speed_download}" "$url" 2>/dev/null)
-        if [[ "$raw_speed" =~ ^[0-9\.]+$ ]];then
-            if [ $(echo "$raw_speed > 0" | bc -l) -eq 1 ];then
-                break
+          # 对比新zubo.txt 和备份 zubo_bf.txt，内容相同则标记无需提交
+          if diff -q zubo.txt zubo_bf.txt >/dev/null ; then
+            echo "ℹ️ 新源与旧源内容完全一致，无需提交，直接结束"
+          else
+            echo "✅ 源文件检测到更新，准备提交"
+            # 只提交zubo.txt 和 txt目录下城市结果文件
+            git add zubo.txt
+            git add txt/
+            if [[ -n $(git status --porcelain) ]]; then
+              git commit -m "🤖 GitHub Actions自动更新多城市源 ${{ github.run_id }}"
+              git push
+            else
+              echo "✅ git无变更，跳过提交"
             fi
-        fi
-    done
-
-    if [[ "$raw_speed" =~ ^[0-9\.]+$ && $(echo "$raw_speed > 0" | bc -l) -eq 1 ]]; then
-        # 仅这一行输出到stdout，存入测速结果文件！
-        echo "$raw_speed $ip"
-        # 日志输出到stderr，不会污染测速数据
-        if [ $(echo "$raw_speed >= 1048576" | bc -l) -eq 1 ]; then
-            show_speed=$(echo "scale=2; $raw_speed / 1048576" | bc)M
-        elif [ $(echo "$raw_speed >= 1024" | bc -l) -eq 1 ]; then
-            show_speed=$(echo "scale=2; $raw_speed / 1024" | bc)k
-        else
-            show_speed="${raw_speed}B"
-        fi
-        echo "【测速成功】$ip 速度：$show_speed" >&2
-    else
-        echo "【测速失败】$ip raw_speed=$raw_speed" >&2
-    fi
-}
-export -f speed_test
-export SPEED_RETRY stream
-
-> tmp_speed_result.tmp
-TMP_FILES+=("tmp_speed_result.tmp")
-log_print "【GA控制台】准备启动并发测速，并发数：${SPEED_CONCURRENT}"
-
-# 并发测速：只有stdout内容写入tmp_speed_result.tmp，调试日志全部丢stderr
-cat "$good_ip_file" | xargs -P ${SPEED_CONCURRENT} -I {} bash -c 'speed_test "{}"' > tmp_speed_result.tmp
-
-valid_line=$(wc -l < tmp_speed_result.tmp)
-log_print "【GA控制台】本次测速，拿到有效速度记录行数：$valid_line"
-
-sort -k1 -nr tmp_speed_result.tmp > ip/tmp_speed_${city}.tmp
-cp ip/tmp_speed_${city}.tmp "ip/tmp_speed_${city}.txt"
-log_print "===== ${city} 测速排序完成 ====="
-
-# 生成城市独立txt
-> tmp_city_out.tmp
-TMP_FILES+=("tmp_city_out.tmp")
-for ((n=1; n<=CITY_TOP_COUNT; n++));do
-    ip_raw=$(awk -v line="$n" 'NR==line{print $2}' ip/tmp_speed_${city}.tmp)
-    ip_raw=$(strip_http "$ip_raw")
-    if [ -z "$ip_raw" ];then continue;fi
-    ip_only=$(echo "$ip_raw" | cut -d: -f1)
-    first_oct=$(echo "$ip_only" | cut -d. -f1)
-    # 过滤组播地址 224~239
-    if [ "$first_oct" -ge 224 ] && [ "$first_oct" -le 239 ];then
-        continue
-    fi
-    ip_full="http://${ip_raw}"
-    sed "s|ipipip|$ip_full|g" template/template_${city}.txt >> tmp_city_out.tmp
-done
-
-# 清理输出内容：去掉http、去掉"第x/x个："这类多余文字
-sed 's|第[0-9]*\/[0-9]*个：||g' tmp_city_out.tmp | grep -v '///' > "txt/${city}.txt"
-log_print "✅ ${city} 已输出文件 txt/${city}.txt"
+          fi
