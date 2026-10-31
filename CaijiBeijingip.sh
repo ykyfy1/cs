@@ -147,6 +147,7 @@ if [ "$city_choice" -eq 0 ];then
     while read -r ip_raw; do
         ip_full="http://${ip_raw}"
         sed "s|ipipip|$ip_full|g" template/template_Beijing_dianxin.txt >> zubo.txt
+        sed "s|ipipip|$ip_full|g" template/template_Shanghai_dianxin.txt >> zubo.txt
     done < "$merge_raw"
     rm -f "$merge_raw"
 
