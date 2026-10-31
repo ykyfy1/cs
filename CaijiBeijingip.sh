@@ -106,7 +106,7 @@ mv tmp_filter_ip.tmp "$good_ip_file"
 total_ip=$(wc -l < "$good_ip_file")
 echo "===== 【GA控制台】城市 ${city}，去重后待测IP总数: $total_ip =====" | tee -a "${LOG_FILE}"
 
-# 测速函数
+# 测速函数【修复bc判断语法错误】
 speed_test(){
     local ip="$1"
     local url="http://$ip/$stream"
@@ -114,16 +114,21 @@ speed_test(){
     local raw_speed=""
     for ((r=0; r<=SPEED_RETRY; r++)); do
         raw_speed=$(curl --connect-timeout 3 --max-time 10 -o /dev/null -w "%{speed_download}" "$url" 2>/dev/null)
-        if [[ "$raw_speed" =~ ^[0-9\.]+$ && $(echo "$raw_speed > 0" | bc) -eq 1 ]];then
-            break
+        if [[ "$raw_speed" =~ ^[0-9\.]+$ ]];then
+            # bc判断返回1代表大于0
+            if [ $(echo "$raw_speed > 0" | bc -l) -eq 1 ];then
+                break
+            fi
         fi
     done
 
-    if [[ "$raw_speed" =~ ^[0-9\.]+$ && $(echo "$raw_speed > 0" | bc) -eq 1 ]]; then
+    if [[ "$raw_speed" =~ ^[0-9\.]+$ && $(echo "$raw_speed > 0" | bc -l) -eq 1 ]]; then
+        # 输出【原始字节数 IP】，用于排序，不带单位！
         echo "$raw_speed $ip"
-        if (( $(echo "$raw_speed >= 1048576" | bc -l) )); then
+        # 可读速度，仅写入日志，修复判断语法
+        if [ $(echo "$raw_speed >= 1048576" | bc -l) -eq 1 ]; then
             show_speed=$(echo "scale=2; $raw_speed / 1048576" | bc)M
-        elif (( $(echo "$raw_speed >= 1024" | bc -l) )); then
+        elif [ $(echo "$raw_speed >= 1024" | bc -l) -eq 1 ]; then
             show_speed=$(echo "scale=2; $raw_speed / 1024" | bc)k
         else
             show_speed="${raw_speed}B"
