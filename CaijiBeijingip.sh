@@ -21,7 +21,7 @@ cleanup() {
     local exit_type="$1"
     if [ "$exit_type" -eq 1 ];then
         echo -e "\n⚠️  检测到异常退出，清理临时文件..." | tee -a "${LOG_FILE}"
-        rm -f tmp_good_ip zubo_*.tmp tmp_all.txt tmp_speed_m3u.tmp
+        rm -f tmp_good_ip zubo_*.tmp tmp_all.txt tmp_speed_list.tmp
         echo "✅ 临时文件清理完成" | tee -a "${LOG_FILE}"
         exit 1
     else
@@ -70,15 +70,15 @@ mkdir -p ip txt template
 case $city_choice in
     1)
         city="Beijing_dianxin"
-        stream="rtp/239.94.0.103:5140"
+        stream_group="239.94.0.103:5140"
         ;;
     2)
         city="Shanghai_dianxin"
-        stream="rtp/替换上海组播地址"
+        stream_group="替换上海组播地址"
         ;;
     3)
         city="Guangzhou_dianxin"
-        stream="rtp/替换广州组播地址"
+        stream_group="替换广州组播地址"
         ;;
     0)
         log_print "==================== 开始依次测速全部城市 ===================="
@@ -89,54 +89,49 @@ case $city_choice in
         log_print "==================== 全部城市测速结束，生成全局M3U排序列表 ===================="
         merge_output="txt/all_city_sorted.m3u"
         > "$merge_output"
-        tmp_speed_m3u="tmp_speed_m3u.tmp"
-        > "$tmp_speed_m3u"
+        tmp_speed_list="tmp_speed_list.tmp"
+        > "$tmp_speed_list"
 
-        # 读取每个城市生成的临时m3u，提取速度、完整两行m3u内容
+        # 读取临时文件：速度,裸IP,组播地址（全部不带http）
         cat txt/*.txt | awk '
-        BEGIN{
-            speed_val=0
-            line_buf=""
+        BEGIN{speed_val=0;ip_addr="";group_addr=""}
+        /^SPEED:/{
+            speed_raw=substr($0,8);
+            if(speed_raw ~ /M/){sub(/M/,"",speed_raw); speed_val=speed_raw*1024}
+            else if(speed_raw ~ /k/){sub(/k/,"",speed_raw); speed_val=speed_raw}
+            else{speed_val=0}
+            next;
         }
-        {
-            if($0 ~ /^#EXTINF/){
-                line_buf=$0
-            }else if($0 ~ /^http:\/\//){
-                # 拿到http行，提取IP
-                ip_line=$0
-                sub(/http:\/\//,"",ip_line)
-                split(ip_line,ipp,":")
-                ip=ipp[1]
-                split(ip,oct,".")
-                # 过滤组播IP
-                if(oct[1]>=224 && oct[1]<=239) {line_buf="";next;}
-                print speed_val, line_buf
-                print speed_val, $0
-                speed_val=0
-                line_buf=""
-            }else if($0 ~ /[0-9]+\.?[0-9]*[kM]/){
-                # 提取速度
-                if($0 ~ /M/){sub(/M/,"");speed_val=$0*1024}
-                else if($0 ~ /k/){sub(/k/,"");speed_val=$0}
-                else{speed_val=0}
+        /^IP:/{
+            ip_addr=substr($0,4);
+            next;
+        }
+        /^GROUP:/{
+            group_addr=substr($0,7);
+            split(ip_addr,ipp,":");
+            split(ipp[1],oct,".");
+            #过滤组播IP
+            if(oct[1]>=224 && oct[1]<=239) {speed_val=0;ip_addr="";group_addr="";next;}
+            if(speed_val>0){
+                print speed_val,ip_addr,group_addr
             }
-        }' > "${tmp_speed_m3u}"
+            speed_val=0;ip_addr="";group_addr=""
+        }
+        ' | sort -k1 -nr > "${tmp_speed_list}"
 
-        # 按速度降序排序，重组标准m3u格式
-        cat "${tmp_speed_m3u}" | sort -k1 -nr | awk '
-        BEGIN{last_speed=-1}
-        {
-            sp=$1
-            content=substr($0,index($0,$2))
-            if(sp != last_speed){
-                print content
-            }else{
-                print content
-            }
-            last_speed=sp
-        }' | grep -v '^[0-9.]*$' > "${merge_output}"
+        log_print "===== 全局测速排名预览【裸IP+速度，无http】 ====="
+        cat "${tmp_speed_list}" | awk '{printf "%-22s %s\n",$2,$1}' | tee -a "${LOG_FILE}"
 
-        # ===================== 输出m3u文件，保留#EXTINF格式 =====================
+        # 生成最终m3u文件：**在这里才一次性添加http://**
+        while read -r sp_num ip grp;do
+            [ -z "$ip" ] && continue
+            # 拼接完整url，只加一次http://
+            full_url="http://${ip}/rtp/${grp}"
+            # 读取模板，模板内绝对不要写http://！！！
+            sed "s|ipipip|${full_url}|g" "template/template_${city}.txt" >> "${merge_output}"
+        done < "${tmp_speed_list}"
+
+        # 复制输出文件
         cp "$merge_output" zubo.m3u
         cp "$merge_output" txt/Beijing_dianxin.m3u
         cp "$merge_output" txt/Shanghai_dianxin.m3u
@@ -145,22 +140,17 @@ case $city_choice in
         cp "$merge_output" 组播_Shanghai_dianxin.m3u
         cp "$merge_output" 组播_Guangzhou_dianxin.m3u
 
-        # 输出行数校验，GA日志直接看有没有数据
+        # 文件行数校验
         log_print "==== 文件生成校验 ===="
         log_print "zubo.m3u 行数：$(wc -l < zubo.m3u)"
         log_print "all_city_sorted.m3u 行数：$(wc -l < ${merge_output})"
         log_print "组播_Beijing_dianxin.m3u 行数：$(wc -l < 组播_Beijing_dianxin.m3u)"
         log_print "======================"
-
-        # 备份上一轮结果
-        cp zubo.m3u zubo_bf.m3u
-
         log_print "✅ 全局排序完成！保留M3U格式，按测速从快到慢排序"
         log_print "👉 zubo.m3u / txt/下城市文件 / 组播_*.m3u 内容完全相同"
 
-        # 打印预览
         log_print "===== 全局M3U排序列表预览 ====="
-        cat "$merge_output" | tee -a "${LOG_FILE}"
+        cat "${merge_output}" | tee -a "${LOG_FILE}"
         log_print "====================================================================="
         log_print "📝 日志已保存: ${LOG_FILE}"
         exit 0
@@ -179,11 +169,10 @@ fi
 
 time_tag=$(date +%m%d%H%M)
 good_ip="ip/good_${city}_ip.txt"
-result_ip="ip/result_${city}_ip.txt"
 speed_log="speedtest_${city}_${time_tag}.log"
-city_m3u_tmp="txt/${city}.txt"
+city_tmp="txt/${city}.txt"
 > "$speed_log"
-> "$city_m3u_tmp"
+> "$city_tmp"
 
 log_print "======== 开始测速 ${city} ========"
 log_print "读取存活IP文件: ${good_ip}"
@@ -196,9 +185,6 @@ fi
 sort "$good_ip" | uniq | sed '/^\s*$/d' > tmp_filter_ip && mv tmp_filter_ip "$good_ip"
 line_count=$(wc -l < "$good_ip")
 log_print "存活IP数量：$line_count"
-log_print "==== 待测速IP列表 ===="
-cat "$good_ip" | tee -a "${LOG_FILE}"
-log_print "======================"
 
 if [ "$line_count" -eq 0 ];then
     log_print "⚠️ IP文件为空，跳过"
@@ -211,10 +197,11 @@ speed_test(){
     local ip="$1"
     local idx="$2"
     local total="$3"
-    local url="http://${ip}/${stream}"
+    # 测速用完整url，仅curl测速使用
+    local curl_url="http://${ip}/rtp/${stream_group}"
     local raw_speed=""
     for ((r=0; r<=SPEED_RETRY; r++)); do
-        raw_speed=$(curl --connect-timeout 3 --max-time 15 -o /dev/null -w "%{speed_download}" "$url" 2>/dev/null)
+        raw_speed=$(curl --connect-timeout 3 --max-time 15 -o /dev/null -w "%{speed_download}" "$curl_url" 2>/dev/null)
         if [[ "$raw_speed" =~ ^[0-9\.]+$ && $(echo "$raw_speed > 0" | bc) -eq 1 ]];then
             break
         fi
@@ -232,6 +219,7 @@ speed_test(){
             unit="B"
         fi
         echo "${sp}${unit} ${ip}" >> "$speed_log"
+        # 控制台输出：只打印IP:端口 + 速度，不带http！！
         log_print "第${idx}/${total}个：${ip}    ${sp}${unit}"
     else
         log_print "第${idx}/${total}个：${ip}    0B 已跳过"
@@ -256,7 +244,7 @@ wait
 log_print "[测速进度] ${i}/${line_count} (100%) 当前城市测速完成"
 
 log_print "开始本城市测速结果排序"
-# 按速度降序排序
+# 速度排序
 awk '
 {
     ip=$2
@@ -266,12 +254,12 @@ awk '
     else {num=0}
     print num,speed,ip
 }
-' "$speed_log" | sort -k1 -nr > "$result_ip"
+' "$speed_log" | sort -k1 -nr > result_sort.tmp
 
-# 读取template模板生成M3U两行一组格式，写入城市txt
+# 写入城市临时文件：只存标记、裸IP、组播地址，**无http**
 for ((n=1; n<=CITY_TOP_COUNT; n++));do
-    ip_raw=$(awk -v line="$n" 'NR==line{print $3}' "$result_ip")
-    speed_line=$(awk -v line="$n" 'NR==line{print $2}' "$result_ip")
+    ip_raw=$(awk -v line="$n" 'NR==line{print $3}' result_sort.tmp)
+    speed_line=$(awk -v line="$n" 'NR==line{print $2}' result_sort.tmp)
     ip_raw=$(strip_http "$ip_raw")
     if [ -z "$ip_raw" ];then
         continue
@@ -281,12 +269,12 @@ for ((n=1; n<=CITY_TOP_COUNT; n++));do
     if [ -n "$first_oct" ] && [ "$first_oct" -ge 224 ] && [ "$first_oct" -le 239 ];then
         continue
     fi
-    ip_full="http://${ip_raw}/${stream}"
-    # 读取模板替换，保留#EXTINF行
-    sed "s|ipipip|${ip_full}|g" "template/template_${city}.txt" >> "${city_m3u_tmp}"
-    # 附带速度行，用于后面全局排序
-    echo "SPEED:${speed_line}" >> "${city_m3u_tmp}"
+    # 临时文件保存原始数据，不带任何http
+    echo "SPEED:${speed_line}" >> "${city_tmp}"
+    echo "IP:${ip_raw}" >> "${city_tmp}"
+    echo "GROUP:${stream_group}" >> "${city_tmp}"
 done
+rm -f result_sort.tmp
 
-log_print "${city} M3U临时文件生成完成，等待全部城市跑完统一全局排序"
+log_print "${city} 临时数据保存完成，等待全部城市跑完统一全局排序"
 cleanup 0
