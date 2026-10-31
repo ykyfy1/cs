@@ -102,7 +102,7 @@ esac
 
 # 如果是批量入口(0)，执行完循环就进入全局合并逻辑
 if [ "$city_choice" -eq 0 ];then
-    #--------合并所有城市txt文件，保留http://，按速度从快到慢排序去重--------
+    #--------合并所有城市txt文件，剥离http，裸IP排序去重，最后一次性加上http--------
     merge_output="txt/all_city_sorted.txt"
     > $merge_output
 
@@ -114,53 +114,71 @@ if [ "$city_choice" -eq 0 ];then
     }
     {
         rate=""
-        url=""
         for(i=1;i<=NF;i++){
-            if($i ~ /^[0-9]+\.?[0-9]*[kM]$/) rate=$i
-            if($i ~ /^http:\/\/[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+$/) url=$i
+            if($i ~ /^[0-9]+\.?[0-9]*[kM]$/){
+                rate=$i
+                break
+            }
+        }
+        ip_port=""
+        for(i=1;i<=NF;i++){
+            if($i ~ /http:\/\/[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+/){
+                ip_port=$i
+                sub(/http:\/\//,"",ip_port)
+                break
+            }
         }
         num=getnum(rate)
-        print num, url, $0
+        print num, ip_port, $0
     }' | sort -k1 -nr | awk -v top="$MERGE_TOP_COUNT" '
     BEGIN{count=0}
     {
         key=$2
-        if( !seen[key]++ && count < top ){
-            print substr($0, index($0,$3))
-            count++
+        if( !seen[key]++ ){
+            if(count < top){
+                sub($2,"http://"$2,$0)
+                print substr($0, index($0,$3))
+                count++
+            }
         }
     }' > $merge_output
 
     sed -i 's|第[0-9]*\/[0-9]*个：||g' $merge_output
     awk '
     {
-        keep=1
         for(i=1;i<=NF;i++){
             if($i ~ /^http:\/\/[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+/) {
                 ip_port=$i
                 sub(/http:\/\//,"",ip_port)
                 split(ip_port,iparr,":");
                 split(iparr[1],oct,".");
-                if(oct[1]>=224 && oct[1]<=239) keep=0
+                if(oct[1]>=224 && oct[1]<=239) next;
             }
         }
-        if(keep) print
+        print
     }' $merge_output > tmp_merge && mv tmp_merge $merge_output
 
+    # ========== 复制为zubo.txt 并且执行兜底清理，强制只保留1个http:// ==========
     cp $merge_output zubo.txt
+    sed -i 's/http:\/\///g; s/^/http:\/\//' zubo.txt
+
     log_print "✅ 全局合并完成，IP+端口完全相同才去重，同IP不同端口保留，只保留最快前${MERGE_TOP_COUNT}条：$merge_output"
     log_print "==================== 全局合并【从快到慢总清单】 ===================="
     awk '
     {
         gsub(/第[0-9]*\/[0-9]*个：/,"");
-        url=""
-        speed=""
         for(i=1;i<=NF;i++){
-            if($i ~ /^http:\/\/[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+$/) url=$i
+            if($i ~ /^http:\/\/[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+/) {
+                ip_port=$i
+                sub(/http:\/\//,"",ip_port)
+                split(ip_port,iparr,":");
+                split(iparr[1],oct,".");
+                if(oct[1]>=224 && oct[1]<=239) next;
+            }
             if($i ~ /^[0-9]+\.?[0-9]*[kM]$/) speed=$i
         }
-        if(url!="" && speed!=""){
-            printf "%-4s %-25s %s\n",NR,url,speed
+        if(ip_port!="" && speed!=""){
+            printf "%-4s %-22s %s\n",NR,ip_port,speed
         }
     }' "${merge_output}" | tee -a "${LOG_FILE}"
     log_print "====================================================================="
@@ -253,34 +271,41 @@ done < $good_ip
 wait
 log_print "[测速进度] $i/$total_good (100%) 测速全部完成"
 
-# 测速结果排序，输出【纯ip:port】不带http
-log_print "测速结果排序（从快到慢）"
+# ===================== 修复排序核心代码（不依赖前缀文字，所有城市均可正常排序） =====================
+log_print "测速结果排序"
 awk '
+# 只提取IP与速度，不受前缀文字影响
 {
+    ip=""; speed="";
     for(i=1;i<=NF;i++){
-        if ($i ~ /[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+/) ip=$i
-        if ($i ~ /^[0-9]+\.?[0-9]*[kM]$/) speed=$i
+        if ($i ~ /[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+/) ip=$i;
+        if ($i ~ /^[0-9]+\.?[0-9]*[kM]$/) speed=$i;
     }
-    if(speed == "") next;
-    if(speed ~ /M/){num=speed*1024}
-    else if(speed ~ /k/){num=speed}
-    else {num=0}
-    print num,speed,ip
+    if(ip=="" || speed=="") next;
+    # 换算成统一数值用于排序
+    if(speed ~ /M/) val=speed*1024;
+    else if(speed ~ /k/) val=speed;
+    else val=0;
+    print val, speed, ip
 }
 ' $speed_log | sort -k1 -nr | awk '{print $2"  "$3}' > $result_ip
 
 log_print "========= ${city} 排序完成，从快到慢列表 ========="
 awk '
 {
+    gsub(/http:\/\//,"");
     gsub(/第[0-9]*\/[0-9]*个：/,"");
-    ip_raw=""
-    speed=""
     for(i=1;i<=NF;i++){
-        if($i ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+$/) ip_raw=$i
+        if($i ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+/) {
+            ip_port=$i
+            split(ip_port,iparr,":");
+            split(iparr[1],oct,".");
+            if(oct[1]>=224 && oct[1]<=239) next;
+        }
         if($i ~ /^[0-9]+\.?[0-9]*[kM]$/) speed=$i
     }
-    if(ip_raw!="" && speed!=""){
-        printf "%-4s %-25s %s\n",NR,"http://"$ip_raw,speed
+    if(ip_port!="" && speed!=""){
+        printf "%-4s %-22s %s\n",NR,ip_port,speed
     }
 }' "${result_ip}" | tee -a "${LOG_FILE}"
 log_print "=================================================="
@@ -288,19 +313,20 @@ log_print "=================================================="
 > tmp_all.txt
 for ((n=1; n<=CITY_TOP_COUNT; n++));do
     ip_raw=$(awk -v line="$n" 'NR==line{print $2}' $result_ip | sed 's|第[0-9]*\/[0-9]*个：||')
+    ip_raw=$(strip_http "$ip_raw")
     ip_only=$(echo "$ip_raw" | cut -d: -f1)
     first_oct=$(echo "$ip_only" | cut -d. -f1)
-    # 过滤组播IP
     if [ "$first_oct" -ge 224 ] && [ "$first_oct" -le 239 ];then
         continue
     fi
     if [ -z "$ip_raw" ];then continue;fi
-    # 重点：模板里面保留 #EXTINF 行，模板里的ipipip直接替换成 http://ip_raw
     ip_full="http://${ip_raw}"
     sed "s|ipipip|$ip_full|g" template/template_${city}.txt >> tmp_all.txt
 done
 
 sed 's|第[0-9]*\/[0-9]*个：||g' tmp_all.txt | grep -v '///' > "txt/${city}.txt"
+# 兜底清理多重http，保证只保留一层http://
+sed -i 's/http:\/\///g; s/^/http:\/\//' "txt/${city}.txt"
 rm -f tmp_all.txt $speed_log $result_ip
 log_print "${city} 测试完成，保留前${CITY_TOP_COUNT}条，生成纯净订阅文件：'txt/${city}.txt'"
 
