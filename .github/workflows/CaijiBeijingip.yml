@@ -54,16 +54,27 @@ jobs:
         run: |
           cd $GITHUB_WORKSPACE
           python ./CaijiBeijingip.py
-          # 备份原有zubo.txt
-          cp zubo.txt zubo_bf.txt
+          # ===== 修复这里：先判断zubo.txt存在才做备份，避免首次运行报错 =====
+          if [ -f "zubo.txt" ]; then
+            cp zubo.txt zubo_bf.txt
+            echo "✅ 已备份当前zubo.txt为zubo_bf.txt"
+          else
+            echo "ℹ️ 仓库暂无旧zubo.txt，跳过备份"
+            touch zubo_bf.txt
+          fi
           bash ./CaijiBeijingip.sh 0
           # 校验根目录zubo.txt，存在且非空才保留新文件，否则恢复备份
           NEW_ZUBO="./zubo.txt"
           if [ -f "$NEW_ZUBO" ] && [ -s "$NEW_ZUBO" ]; then
             echo "✅ 全局合并完成，zubo.txt生成成功"
           else
-            echo "⚠️ 警告：新zubo.txt不存在或者是空！恢复旧备份文件"
-            cp zubo_bf.txt zubo.txt
+            echo "⚠️ 警告：新zubo.txt不存在或者是空！尝试恢复旧备份文件"
+            if [ -f "zubo_bf.txt" ] && [ -s "zubo_bf.txt" ]; then
+              cp zubo_bf.txt zubo.txt
+              echo "✅ 已恢复备份文件"
+            else
+              echo "ℹ️ 无有效旧备份，跳过恢复，不抛出错误"
+            fi
           fi
 
       - name: 上传扫描结果&日志到Artifact
