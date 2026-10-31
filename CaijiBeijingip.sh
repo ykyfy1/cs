@@ -101,7 +101,7 @@ case $city_choice in
         ;;
 esac
 
-# ===================== 全局合并【修复：过滤#EXTINF标题行】=====================
+# ===================== 全局合并【过滤#EXTINF标题行】=====================
 if [ "$city_choice" -eq 0 ];then
     merge_output="txt/all_city_sorted.txt"
     > $merge_output
@@ -138,11 +138,15 @@ if [ "$city_choice" -eq 0 ];then
     # 清理多余前缀文字
     sed -i 's|第[0-9]*\/[0-9]*个：||g' $merge_output
 
-    # 兜底清理http重复
+    # ========= zubo.txt 生成 + 额外过滤#EXTINF =========
     cp $merge_output zubo.txt
     sed -i 's/http:\/\///g; s/^/http:\/\//' zubo.txt
+    # 新增：zubo.txt 删除所有#EXTINF行，只保留带IP链接行
+    sed -i '/^#EXTINF/d' zubo.txt
+    sed -i '/^$/d' zubo.txt
 
     log_print "✅ 全局合并完成：过滤#EXTINF标题，IP:端口唯一去重，按速度从快到慢排序，保留前${MERGE_TOP_COUNT}条"
+    log_print "✅ zubo.txt 已同步过滤，无#EXTINF注释空行"
     log_print "==================== 全局合并【从快到慢总清单】 ===================="
     awk '
     {
