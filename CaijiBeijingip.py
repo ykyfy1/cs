@@ -55,6 +55,25 @@ def parse_range(s):
         return [int(s)]
 
 
+def is_valid_ipv4(s):
+    """严格判断是否是标准IPv4地址"""
+    pat = r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$'
+    if not re.fullmatch(pat, s):
+        return False
+    parts = s.split(".")
+    return all(0 <= int(p) <= 255 for p in parts)
+
+
+def is_domain_str(s):
+    """判断是否为域名：不是标准IPv4，支持纯数字域名"""
+    if is_valid_ipv4(s):
+        return False
+    domain_pat = r'^[a-zA-Z0-9-]+(\.[a-zA-Z0-9-]+)+$'
+    if re.fullmatch(domain_pat, s):
+        return True
+    return False
+
+
 def read_config(config_file):
     print(f"读取设置文件：{config_file}", flush=True)
     ip_configs = []
@@ -64,7 +83,7 @@ def read_config(config_file):
                 line = line.strip()
                 if not line or line.startswith("#"):
                     continue
-                # 只拆分第一个冒号，区分【IP表达式】和【端口+参数】
+                # 只拆分第一个冒号，区分【IP表达式/域名】和【端口+参数】
                 ip_expr, rest = line.split(':', 1)
                 # rest样例：4022|8888|8188,0,10
                 rest_parts = rest.split(',')
@@ -80,10 +99,20 @@ def read_config(config_file):
 
                 dot_count = ip_part.count('.')
                 for port in ports:
-                    # ========= 核心修改：dot_count=1/2/3 全部走range4，不足4段补0-255 =========
+                    # ========== 域名模式判断（支持纯数字域名） ==========
+                    if is_domain_str(ip_part):
+                        ip_configs.append(
+                            (ip_part, port, url_end, "domain", max_find)
+                        )
+                        print(
+                            f"第{line_num}：域名 {ip_part} 端口 {port_str}，"
+                            f"模式={url_flag}({url_end})，最多获取 {max_find if max_find else '不限'} 个", flush=True
+                        )
+                        continue
+
+                    # ========= 原有IP网段逻辑完全保留 =========
                     if 1 <= dot_count <= 3:
                         segs = ip_part.split('.')
-                        # 不够4段，后面补上 "0-255"
                         while len(segs) < 4:
                             segs.append("0-255")
                         ip_configs.append(
@@ -109,7 +138,9 @@ def read_config(config_file):
 
 
 async def get_ip_geo(session, ip, sem):
-    """异步查询IP归属地，后置执行，带缓存"""
+    """异步查询IP归属地，后置执行，带缓存
+    ⚠️注意：域名会直接走这里，ip-api无法查域名，会自动返回【未知归属地】，符合预期
+    """
     if ip in geo_cache:
         return geo_cache[ip]
     try:
@@ -129,7 +160,7 @@ async def get_ip_geo(session, ip, sem):
 
 
 async def tcp_check(ip, port, timeout=TCP_TIMEOUT):
-    """用可靠的open_connection，GA环境不会误判端口"""
+    """用可靠的open_connection，GA环境不会误判端口；原生支持域名"""
     try:
         reader, writer = await asyncio.wait_for(asyncio.open_connection(ip, int(port)), timeout=timeout)
         writer.close()
@@ -190,8 +221,10 @@ async def check_udpxy(ip_port, url_end, session):
 
 
 def gen_ip_task(ip_info, port, mode):
-    """生成器懒加载IP:port，不一次性全部载入内存"""
-    if mode == "full":
+    """生成器懒加载IP:port，新增domain模式，直接返回域名:port"""
+    if mode == "domain":
+        yield f"{ip_info}:{port}"
+    elif mode == "full":
         first = ip_info
         for x in range(1, 101):
             for y in range(1, 101):
@@ -216,9 +249,11 @@ def gen_ip_task(ip_info, port, mode):
 
 
 def count_total_tasks(ip_info, port, mode):
-    """预计算总任务数量，用于进度百分比"""
+    """预计算总任务数量，domain模式任务=1"""
     total = 0
-    if mode == "full":
+    if mode == "domain":
+        total = 1
+    elif mode == "full":
         total = 100 * 100 * 100
     elif mode == "range4":
         a_seg, b_seg, c_seg, d_seg = ip_info
@@ -337,7 +372,9 @@ async def multicast_province(config_file, semaphore, session, global_stop_event,
         if global_stop_event.is_set():
             print("全局停止，跳过该省份剩余网段", flush=True)
             break
-        if mode == "full":
+        if mode == "domain":
+            print(f"\n开始检测域名 {ip_info}:{port}{url_end}", flush=True)
+        elif mode == "full":
             print(f"\n开始扫描第一段固定 {ip_info}，范围 {ip_info}.1-100.1-100.1-100:{port}{url_end}", flush=True)
         elif mode == "range4":
             a_seg, b_seg, c_seg, d_seg = ip_info
@@ -348,7 +385,7 @@ async def multicast_province(config_file, semaphore, session, global_stop_event,
         all_result.extend(result)
     # ====================== 扫描全部完成后，批量查询归属地 ======================
     if GEO_ENABLE and len(all_result) > 0:
-        print(f"\n🔍 开始批量查询{len(all_result)}个IP的归属地...", flush=True)
+        print(f"\n🔍 开始批量查询{len(all_result)}个IP/域名的归属地...", flush=True)
         geo_sem = asyncio.Semaphore(GEO_SEMAPHORE)
         async with aiohttp.ClientSession() as geo_session:
             tasks = []
@@ -370,7 +407,11 @@ async def multicast_province(config_file, semaphore, session, global_stop_event,
             max_c = int(item["max_client"])
         except ValueError:
             max_c = 0
-        ip_nums = list(map(int, item["ip"].split(".")))
+        # 域名直接放到末尾排序，避免split(".")报错
+        if is_domain_str(item["ip"]):
+            ip_nums = [999,999,999,999]
+        else:
+            ip_nums = list(map(int, item["ip"].split(".")))
         port_num = int(item["port"])
         return (-max_c, *ip_nums, port_num)
     all_result = sorted(all_result, key=sort_key)
@@ -400,7 +441,7 @@ async def multicast_province(config_file, semaphore, session, global_stop_event,
         with open(f"组播_{province}_{operator}.txt", 'w', encoding='utf-8') as f:
             f.write('\n'.join(output))
     print(f"\n{province}_{operator} 扫描完成，获取有效udpxy共：{len(all_result)}个", flush=True)
-    print(f" -> 测速用txt：ip/good_{province}_{operator}_ip.txt （纯ip:port，测速程序读取）", flush=True)
+    print(f" -> 测速用txt：ip/good_{province}_{operator}_ip.txt （纯ip:port/域名:port，测速程序读取）", flush=True)
     print(f" -> 带归属地完整txt：ip/good_{province}_{operator}_full.txt", flush=True)
     print(f" -> 表格csv：{csv_path}", flush=True)
     print(f" -> json详情：{json_path}", flush=True)
