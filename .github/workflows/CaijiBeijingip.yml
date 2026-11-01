@@ -65,6 +65,32 @@ jobs:
           # =====【第二步：运行采集、测速脚本】=====
           python ./CaijiBeijingip.py
           bash ./CaijiBeijingip.sh 0
+
+          # =========【原样拼接城市原文，无额外标题】=========
+          echo "===按定义顺序拼接城市文件到zubo.txt==="
+          > zubo.txt
+          # 在这里自定义城市顺序，新增城市直接追加一行
+          city_list=(
+            "txt/Beijing_dianxin.txt"
+            "txt/Shanghai_dianxin.txt"
+            #"txt/Guangzhou_dianxin.txt"
+          )
+
+          for f in "${city_list[@]}"; do
+            if [ -f "$f" ] && [ -s "$f" ]; then
+              cat "$f" >> zubo.txt
+              echo "✅ 已拼接文件：$f"
+            else
+              echo "⏭️ 跳过空/不存在文件：$f"
+            fi
+          done
+
+          #兜底，防止0字节空文件
+          if [ ! -s zubo.txt ]; then
+            echo "# 暂无测速IP数据" > zubo.txt
+          fi
+          # ==================================================
+
           NEW_ZUBO="./zubo.txt"
           
           # =====【第三步：校验新文件，空就回滚】=====
