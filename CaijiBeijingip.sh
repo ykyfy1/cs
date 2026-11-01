@@ -60,7 +60,7 @@ mkdir -p ip txt template
 case $city_choice in
     1)
         city="Beijing_dianxin"
-        stream="rtp/239.94.0.103:5140"
+        stream="rtp/233.50.201.136:5140"
         ;;
     2)
         city="Shanghai_dianxin"
@@ -114,7 +114,8 @@ esac
 
 # ========== 单个城市测速逻辑 ==========
 log_print "======== 开始处理城市：${city} ========"
-raw_ip="ip/raw_${city}.txt"
+# ========== 这里修改文件名，匹配扫描输出 ==========
+raw_ip="ip/good_${city}_ip.txt"
 speed_out="ip/tmp_speed_${city}.txt"
 > "$speed_out"
 
