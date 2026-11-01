@@ -291,7 +291,7 @@ export SPEED_RETRY stream
 cat "$good_ip" | xargs -P ${SPEED_CONCURRENT} -I {} bash -c 'speed_test "{}"' > $speed_log
 
 log_print "测速完成，开始按速度降序排序"
-# ============【修改这里：增加单位换算排序】============
+# ============【已修改：直接过滤B单位，不进入排序结果】============
 awk '
 function tokb(s){
     if(s ~ /M$/){
@@ -302,7 +302,10 @@ function tokb(s){
     }
     return 0
   }
-  {kb=tokb($1); print kb "\t" $0}
+# 直接排除B结尾的测速结果，不会写入result_ip
+$1 !~ /B$/ {
+    kb=tokb($1); print kb "\t" $0
+}
 ' "$speed_log" | sort -k1,1nr | cut -f2- > "$result_ip"
 # ======================================================
 
@@ -313,14 +316,14 @@ log_print "========= ${city} 测速排序结果 ========="
 cat "${result_ip}" | tee -a "${LOG_FILE}"
 log_print "========================================"
 
-# 生成城市txt文件，使用模板；【重点：只保留≥30k的IP写入txt，B全部丢弃】
+# 生成城市txt文件，使用模板；【重点：只保留≥MIN_SPEED_KB的IP写入txt，B全部丢弃】
 > tmp_all.txt
 count_valid=0
 while read -r line; do
     sp_str=$(echo $line | awk '{print $1}')
     ip_raw=$(echo $line | awk '{print $2}')
     kb_val=$(speed2kb "$sp_str")
-    # 低于阈值 / B单位 直接跳过
+    # 低于阈值直接跳过
     if (( $(echo "$kb_val < $MIN_SPEED_KB" | bc -l) ));then
         continue
     fi
