@@ -2,16 +2,15 @@
 
 # ====================== 全局可配置参数（GA专用）======================
 NC_CONCURRENT=12        # 端口探测并发，GA建议 8~12
-SPEED_CONCURRENT=10     # 测速curl并发，GA建议 8~10
+SPEED_CONCURRENT=6      # 调低并发，降低网络拥堵，让udpxy更容易出包
 PROGRESS_STEP=20        # 每处理多少个IP打印一次进度
 NC_RETRY=1              # 端口探测失败重试次数（0=关闭重试）
 SPEED_RETRY=1           # 测速重试次数改为1次
 CITY_TOP_COUNT=30       # 单个城市结果保留前N条
 MERGE_TOP_COUNT=100     # 合并全部城市后保留前N条
 SAVE_LOG=1              # 1=保存日志，0=关闭日志保存
-MIN_STREAM_BYTES=200    # 主判定阈值
-CURL_STREAM_SECONDS=5   # 修改！拉长拉流时间至5秒，等待udpxy出包
-CHECK_TS=0              # 0=关闭TS校验(调试模式)
+CURL_STREAM_SECONDS=8   # 拉长总超时至8秒，等待udpxy订阅组播源
+CHECK_TS=1              # 开启TS头校验【过滤假节点】
 # ====================================================================
 
 # 日志文件名称，带时间戳
@@ -241,7 +240,7 @@ fi
 
 log_print "开始并发测速，并发数：${SPEED_CONCURRENT}"
 
-# ===================== 测速函数：增加宽松判定，拉流5秒 =====================
+# ===================== 测速函数：TS头校验为主判断 =====================
 speed_test(){
     local ip="$1"
     local url="http://$ip/$stream"
@@ -257,29 +256,18 @@ speed_test(){
     local total_size=0
 
     for ((r=0; r<=SPEED_RETRY; r++)); do
-        # 增加 -L 跟随重定向
         raw_speed=$(curl -L --connect-timeout 2 --max-time ${CURL_STREAM_SECONDS} -o "$tmp_stream" -w "%{speed_download}" "$url" 2>/dev/null)
-        # 修复：stat为空直接赋值0，消除integer报错
         total_size=$(stat -c%s "$tmp_stream" 2>/dev/null)
         if [ -z "$total_size" ];then
             total_size=0
         fi
 
-        # 【主判定】≥200字节直接有效
-        if (( total_size >= MIN_STREAM_BYTES )); then
-            if [ "$CHECK_TS" -eq 1 ]; then
-                if head -c 1024 "$tmp_stream" | grep -q $'\x47'; then
-                    valid=1
-                    break
-                fi
-            else
+        # 核心规则：必须找到TS同步字节0x47(G)，才判定为有效直播流
+        if [ "$total_size" -gt 0 ]; then
+            if head -c 1024 "$tmp_stream" | grep -q $'\x47'; then
                 valid=1
                 break
             fi
-        # 【新增宽松分支】大于0字节，就算小于200，也判定可用（适配udpxy慢起播节点）
-        elif (( total_size > 0 )); then
-            valid=1
-            break
         fi
     done
 
@@ -293,23 +281,20 @@ speed_test(){
         fi
         # 输出到测速结果文件
         echo "$a $ip"
-        # 成功日志，stderr输出，仅控制台展示
         echo "✅ 测速成功 $ip 速度: $a size:${total_size}" >&2
     else
-        # 测速失败日志，stderr输出，打印本次获取到的字节，用于排查
         echo "❌ 测速丢弃 $ip raw_speed:$raw_speed size:${total_size} valid:${valid}" >&2
     fi
 
     rm -f "$tmp_stream"
 }
 export -f speed_test
-export SPEED_RETRY stream MIN_STREAM_BYTES CURL_STREAM_SECONDS CHECK_TS
+export SPEED_RETRY stream CURL_STREAM_SECONDS CHECK_TS
 
 # 并发测速
 cat "$good_ip" | xargs -P ${SPEED_CONCURRENT} -I {} bash -c 'speed_test "{}"' > $speed_log
 
 log_print "测速完成，开始按速度降序排序"
-# ============【修改这里：增加单位换算排序】============
 awk '
 function tokb(s){
     if(s ~ /M$/){
@@ -322,7 +307,6 @@ function tokb(s){
   }
   {kb=tokb($1); print kb "\t" $0}
 ' "$speed_log" | sort -k1,1nr | cut -f2- > "$result_ip"
-# ======================================================
 
 # 保存tmp_speed给全局合并使用
 cp "$result_ip" "ip/tmp_speed_${city}.txt"
@@ -338,7 +322,6 @@ for ((n=1; n<=CITY_TOP_COUNT; n++));do
     ip_raw=$(strip_http "$ip_raw")
     ip_only=$(echo "$ip_raw" | cut -d: -f1)
     first_oct=$(echo "$ip_only" | cut -d. -f1)
-    # 过滤组播IP
     if [ "$first_oct" -ge 224 ] && [ "$first_oct" -le 239 ];then
         continue
     fi
