@@ -8,7 +8,6 @@ on:
 jobs:
   run-script:
     runs-on: ubuntu-latest
-    # 可选：设置job最长运行时间，防止卡死
     timeout-minutes: 60
     steps:
       - name: Checkout Repository
@@ -37,33 +36,38 @@ jobs:
         run: |
           mkdir -p txt logs ip template
 
-      # 新增：自动清理7天前的旧日志
+      # 清理7天前旧日志
       - name: 清理7天前旧日志
         run: |
           find logs -type f -name "scan_*.log" -mtime +7 -delete
           echo "✅ 已删除logs目录下7天前的日志文件"
 
-      # 新增：清理txt目录超过7天的旧结果文件
+      # 清理txt目录过期结果文件
       - name: 清理txt目录过期结果文件
         run: |
           find txt -type f -name "*.txt" -mtime +7 -delete
           echo "✅ 已删除txt目录下7天前的txt结果文件"
 
-      # =========【多城市版本 + 文件保护：失败不覆盖zubo.txt】=========
+      # =========【修复顺序：先备份旧文件，再跑脚本】=========
       - name: 获取源 + 多城市测速处理
         run: |
           cd $GITHUB_WORKSPACE
-          python ./CaijiBeijingip.py
-          # 备份旧文件
-          if [ -f "zubo.txt" ]; then
+          # =====【第一步：先备份仓库原始zubo.txt】=====
+          if [ -f "zubo.txt" ] && [ -s "zubo.txt" ]; then
             cp zubo.txt zubo_bf.txt
-            echo "✅ 已备份当前zubo.txt为zubo_bf.txt"
+            echo "✅ 已备份运行前zubo.txt为zubo_bf.txt"
           else
-            echo "ℹ️ 仓库暂无旧zubo.txt，跳过备份"
+            echo "ℹ️ 仓库无有效旧zubo.txt，新建空备份"
+            rm -f zubo_bf.txt
             touch zubo_bf.txt
           fi
+          
+          # =====【第二步：运行采集、测速脚本】=====
+          python ./CaijiBeijingip.py
           bash ./CaijiBeijingip.sh 0
           NEW_ZUBO="./zubo.txt"
+          
+          # =====【第三步：校验新文件，空就回滚】=====
           if [ -f "$NEW_ZUBO" ] && [ -s "$NEW_ZUBO" ]; then
             echo "✅ 全局合并完成，zubo.txt生成成功"
           else
@@ -75,6 +79,12 @@ jobs:
               echo "ℹ️ 无有效旧备份，跳过恢复"
             fi
           fi
+          
+          # 调试输出：打印文件行数，看日志排查
+          echo "====调试输出===="
+          wc -l txt/*.txt
+          wc -l zubo.txt
+          cat zubo.txt
 
       - name: 上传扫描结果&日志到Artifact
         uses: actions/upload-artifact@v4
@@ -87,22 +97,20 @@ jobs:
             zubo.txt
           retention-days: 7
 
-      # ===== 【修复点】：文件校验恢复完成之后，再执行git add =====
+      # 文件校验恢复完成之后，再执行git add
       - name: 更新源（文件变更才提交，无变化直接跳过）
         run: |
           cd $GITHUB_WORKSPACE
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
           
-          # 先清空git暂存区，避免残留空文件
           git reset HEAD .
           
-          # 对比当前最终的zubo.txt 和备份 zubo_bf.txt
+          # 对比最终zubo 和 运行前备份
           if diff -q zubo.txt zubo_bf.txt >/dev/null ; then
             echo "ℹ️ 新源与旧源内容完全一致，无需提交，直接结束"
           else
             echo "✅ 源文件检测到更新，准备提交"
-            # 【现在才add最终文件】
             git add zubo.txt
             git add txt/
             if [[ -n $(git status --porcelain) ]]; then
