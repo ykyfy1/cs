@@ -9,7 +9,7 @@ SPEED_RETRY=0           # 测速curl失败重试次数（0=关闭，1=重试1次
 CITY_TOP_COUNT=30       # 单个城市结果保留前N条
 MERGE_TOP_COUNT=100     # 合并全部城市后保留前N条
 SAVE_LOG=1              # 1=保存日志，0=关闭日志保存
-MIN_SPEED_KB=30         # 新增阈值：>=30k 才保留写入zubo.txt
+MIN_SPEED_KB=30         # >=30k 才保留写入zubo.txt，B单位全部丢弃
 # ====================================================================
 
 # 日志文件名称，带时间戳
@@ -56,18 +56,18 @@ strip_http(){
     echo "$str"
 }
 
-# 辅助函数：把速度字符串转为KB数值（用于对比阈值）
+# 辅助函数：把速度字符串转为KB数值（修复小数兼容，B类型返回0）
 speed2kb(){
     local s="$1"
-    local val
     if [[ $s == *M ]];then
         val=${s//M/}
-        echo "$val * 1024" | bc
+        echo "$val * 1024" | bc -l
     elif [[ $s == *k ]];then
         val=${s//k/}
-        echo "$val"
+        echo "$val" | bc -l
     else
-        echo 0
+        # B单位直接返回0
+        echo "0"
     fi
 }
 
@@ -313,15 +313,15 @@ log_print "========= ${city} 测速排序结果 ========="
 cat "${result_ip}" | tee -a "${LOG_FILE}"
 log_print "========================================"
 
-# 生成城市txt文件，使用模板；【重点：只保留≥30k的IP写入txt】
+# 生成城市txt文件，使用模板；【重点：只保留≥30k的IP写入txt，B全部丢弃】
 > tmp_all.txt
 count_valid=0
 while read -r line; do
     sp_str=$(echo $line | awk '{print $1}')
     ip_raw=$(echo $line | awk '{print $2}')
     kb_val=$(speed2kb "$sp_str")
-    # 低于阈值直接跳过
-    if (( $(echo "$kb_val < $MIN_SPEED_KB" | bc) ));then
+    # 低于阈值 / B单位 直接跳过
+    if (( $(echo "$kb_val < $MIN_SPEED_KB" | bc -l) ));then
         continue
     fi
     # 最多取CITY_TOP_COUNT条
@@ -345,6 +345,6 @@ done < "$result_ip"
 # 输出txt文件
 sed 's|第[0-9]*\/[0-9]*个：||g' tmp_all.txt | grep -v '///' > "txt/${city}.txt"
 rm -f tmp_all.txt $speed_log $result_ip
-log_print "${city} 测速完成，文件输出至 txt/${city}.txt，仅保留 >=${MIN_SPEED_KB}k 有效IP"
+log_print "${city} 测速完成，文件输出至 txt/${city}.txt，仅保留 >=${MIN_SPEED_KB}k 有效IP，B单位全部过滤"
 
 cleanup 0
