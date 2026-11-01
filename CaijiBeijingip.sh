@@ -5,13 +5,13 @@ NC_CONCURRENT=12        # 端口探测并发，GA建议 8~12
 SPEED_CONCURRENT=10     # 测速curl并发，GA建议 8~10
 PROGRESS_STEP=20        # 每处理多少个IP打印一次进度
 NC_RETRY=1              # 端口探测失败重试次数（0=关闭重试）
-SPEED_RETRY=0           # 测速curl失败重试次数（0=关闭，1=重试1次）
+SPEED_RETRY=1           # 测速重试次数改为1次
 CITY_TOP_COUNT=30       # 单个城市结果保留前N条
 MERGE_TOP_COUNT=100     # 合并全部城市后保留前N条
 SAVE_LOG=1              # 1=保存日志，0=关闭日志保存
-MIN_STREAM_BYTES=10240  # 最小有效TS流字节 10KB，低于直接丢弃
+MIN_STREAM_BYTES=1024   # 修改！最小1KB，降低门槛，适配udpxy组播流
 CURL_STREAM_SECONDS=3   # 持续拉流时长（秒）
-CHECK_TS=1              # 1=开启TS头校验；0=关闭TS校验(调试模式)
+CHECK_TS=0              # 0=关闭TS校验(调试模式)，测试完再切回1
 # ====================================================================
 
 # 日志文件名称，带时间戳
@@ -241,7 +241,7 @@ fi
 
 log_print "开始并发测速，并发数：${SPEED_CONCURRENT}"
 
-# ===================== 测速函数：增加TS开关控制 =====================
+# ===================== 测速函数：降低字节阈值，日志输出size =====================
 speed_test(){
     local ip="$1"
     local url="http://$ip/$stream"
@@ -257,8 +257,8 @@ speed_test(){
     local total_size=0
 
     for ((r=0; r<=SPEED_RETRY; r++)); do
-        # curl: stderr丢弃，stdout分两路：保存视频流到文件，同时捕获speed_download返回值
-        raw_speed=$(curl --connect-timeout 3 --max-time ${CURL_STREAM_SECONDS} -o "$tmp_stream" -w "%{speed_download}" "$url" 2>/dev/null)
+        # 增加 -L 跟随重定向
+        raw_speed=$(curl -L --connect-timeout 2 --max-time ${CURL_STREAM_SECONDS} -o "$tmp_stream" -w "%{speed_download}" "$url" 2>/dev/null)
         total_size=$(stat -c%s "$tmp_stream" 2>/dev/null || echo 0)
 
         # 基础条件：字节大于最小阈值
@@ -288,9 +288,9 @@ speed_test(){
         # 输出到测速结果文件
         echo "$a $ip"
         # 成功日志，stderr输出，仅控制台展示
-        echo "✅ 测速成功 $ip 速度: $a size:${total_size} CHECK_TS:${CHECK_TS}" >&2
+        echo "✅ 测速成功 $ip 速度: $a size:${total_size}" >&2
     else
-        # 测速失败日志，stderr输出，仅控制台展示
+        # 测速失败日志，stderr输出，打印本次获取到的字节，用于排查
         echo "❌ 测速丢弃 $ip raw_speed:$raw_speed size:${total_size} valid:${valid}" >&2
     fi
 
