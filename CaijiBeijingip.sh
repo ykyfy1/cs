@@ -275,8 +275,20 @@ export SPEED_RETRY stream
 cat "$good_ip" | xargs -P ${SPEED_CONCURRENT} -I {} bash -c 'speed_test "{}"' > $speed_log
 
 log_print "测速完成，开始按速度降序排序"
-# 按速度从快到慢排序
-sort -k1 -nr $speed_log > $result_ip
+# ============【修改这里：增加单位换算排序】============
+awk '
+function tokb(s){
+    if(s ~ /M$/){
+        sub(/M/,"",s); return s*1024
+    }
+    if(s ~ /k$/){
+        sub(/k/,"",s); return s*1
+    }
+    return 0
+  }
+  {kb=tokb($1); print kb "\t" $0}
+' "$speed_log" | sort -k1,1nr | cut -f2- > "$result_ip"
+# ======================================================
 
 # 保存tmp_speed给全局合并使用
 cp "$result_ip" "ip/tmp_speed_${city}.txt"
