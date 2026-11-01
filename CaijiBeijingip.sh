@@ -9,6 +9,8 @@ SPEED_RETRY=0           # 测速curl失败重试次数（0=关闭，1=重试1次
 CITY_TOP_COUNT=30       # 单个城市结果保留前N条
 MERGE_TOP_COUNT=100     # 合并全部城市后保留前N条
 SAVE_LOG=1              # 1=保存日志，0=关闭日志保存
+MIN_STREAM_BYTES=10240  # 最小有效TS流字节 10KB，低于直接丢弃
+CURL_STREAM_SECONDS=3   # 持续拉流时长（秒）
 # ====================================================================
 
 # 日志文件名称，带时间戳
@@ -238,20 +240,40 @@ fi
 
 log_print "开始并发测速，并发数：${SPEED_CONCURRENT}"
 
+# ===================== 修改后的测速函数【增加TS流校验+最小字节过滤】 =====================
 speed_test(){
     local ip="$1"
     local url="http://$ip/$stream"
-    local raw_speed=""
+    local tmp_stream="/tmp/stream_${ip//./_}.tmp"
+    rm -f "$tmp_stream"
+
     # 打印当前正在测速的IP（输出到stderr，不污染测速结果文件）
     echo "🔍 正在测速: $ip" >&2
+
+    local valid=0
+    local raw_speed=0
+    local total_size=0
+
     for ((r=0; r<=SPEED_RETRY; r++)); do
-        raw_speed=$(curl --connect-timeout 3 --max-time 10 -o /dev/null -w "%{speed_download}" "$url" 2>/dev/null)
-        if [[ "$raw_speed" =~ ^[0-9\.]+$ && $(echo "$raw_speed > 0" | bc) -eq 1 ]];then
-            break
+        # 拉流，保存流数据到临时文件，持续CURL_STREAM_SECONDS秒
+        curl --connect-timeout 3 --max-time ${CURL_STREAM_SECONDS} -o "$tmp_stream" -w "%{speed_download}" "$url" 2>/dev/null > raw_speed.tmp
+        raw_speed=$(cat raw_speed.tmp)
+        rm -f raw_speed.tmp
+
+        # 获取本次下载总字节
+        total_size=$(stat -c%s "$tmp_stream" 2>/dev/null || echo 0)
+
+        # 校验1：总字节大于最小阈值
+        if (( total_size >= MIN_STREAM_BYTES )); then
+            # 校验2：检查前1KB是否包含TS同步字节 0x47 (MPEG-TS标识)
+            if head -c 1024 "$tmp_stream" | grep -q $'\x47'; then
+                valid=1
+                break
+            fi
         fi
     done
 
-    if [[ "$raw_speed" =~ ^[0-9\.]+$ && $(echo "$raw_speed > 0" | bc) -eq 1 ]]; then
+    if [[ "$valid" -eq 1 && "$raw_speed" =~ ^[0-9\.]+$ && $(echo "$raw_speed > 0" | bc) -eq 1 ]]; then
         if (( $(echo "$raw_speed >= 1048576" | bc -l) )); then
             a=$(echo "scale=2; $raw_speed / 1048576" | bc)M
         elif (( $(echo "$raw_speed >= 1024" | bc -l) )); then
@@ -262,14 +284,16 @@ speed_test(){
         # 输出到测速结果文件
         echo "$a $ip"
         # 成功日志，stderr输出，仅控制台展示
-        echo "✅ 测速成功 $ip 速度: $a" >&2
+        echo "✅ 测速成功 $ip 速度: $a size:${total_size} 检测到TS流" >&2
     else
         # 测速失败日志，stderr输出，仅控制台展示
-        echo "❌ 测速失败 $ip raw_speed:$raw_speed" >&2
+        echo "❌ 测速丢弃 $ip raw_speed:$raw_speed size:${total_size} valid:${valid}" >&2
     fi
+
+    rm -f "$tmp_stream"
 }
 export -f speed_test
-export SPEED_RETRY stream
+export SPEED_RETRY stream MIN_STREAM_BYTES CURL_STREAM_SECONDS
 
 # 并发测速
 cat "$good_ip" | xargs -P ${SPEED_CONCURRENT} -I {} bash -c 'speed_test "{}"' > $speed_log
