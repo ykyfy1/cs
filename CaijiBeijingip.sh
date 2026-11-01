@@ -9,9 +9,9 @@ SPEED_RETRY=1           # 测速重试次数改为1次
 CITY_TOP_COUNT=30       # 单个城市结果保留前N条
 MERGE_TOP_COUNT=100     # 合并全部城市后保留前N条
 SAVE_LOG=1              # 1=保存日志，0=关闭日志保存
-MIN_STREAM_BYTES=1024   # 修改！最小1KB，降低门槛，适配udpxy组播流
+MIN_STREAM_BYTES=200    # 降低到200字节，适配udpxy少量数据包
 CURL_STREAM_SECONDS=3   # 持续拉流时长（秒）
-CHECK_TS=0              # 0=关闭TS校验(调试模式)，测试完再切回1
+CHECK_TS=0              # 0=关闭TS校验(调试模式)
 # ====================================================================
 
 # 日志文件名称，带时间戳
@@ -241,7 +241,7 @@ fi
 
 log_print "开始并发测速，并发数：${SPEED_CONCURRENT}"
 
-# ===================== 测速函数：降低字节阈值，日志输出size =====================
+# ===================== 测速函数：修复stat空值，MIN 200字节 =====================
 speed_test(){
     local ip="$1"
     local url="http://$ip/$stream"
@@ -259,7 +259,11 @@ speed_test(){
     for ((r=0; r<=SPEED_RETRY; r++)); do
         # 增加 -L 跟随重定向
         raw_speed=$(curl -L --connect-timeout 2 --max-time ${CURL_STREAM_SECONDS} -o "$tmp_stream" -w "%{speed_download}" "$url" 2>/dev/null)
-        total_size=$(stat -c%s "$tmp_stream" 2>/dev/null || echo 0)
+        # 修复：stat为空直接赋值0，消除integer报错
+        total_size=$(stat -c%s "$tmp_stream" 2>/dev/null)
+        if [ -z "$total_size" ];then
+            total_size=0
+        fi
 
         # 基础条件：字节大于最小阈值
         if (( total_size >= MIN_STREAM_BYTES )); then
