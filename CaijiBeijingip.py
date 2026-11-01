@@ -198,6 +198,7 @@ def parse_udpxy_status(html_text):
     return info
 
 
+# ========== 修改后的check_udpxy：TCP通就判定有效，不再请求status页面 ==========
 async def check_udpxy(ip_port, url_end, session):
     ip, port = ip_port.split(":")
     tcp_open = await tcp_check(ip, port, timeout=TCP_TIMEOUT)
@@ -205,28 +206,16 @@ async def check_udpxy(ip_port, url_end, session):
         return None
     if DEBUG_MODE:
         print(f"[DEBUG] TCP端口通：{ip_port}", flush=True)
-    try:
-        url = f"http://{ip_port}{url_end}"
-        timeout = aiohttp.ClientTimeout(total=HTTP_TIMEOUT)
-        async with session.get(url, timeout=timeout) as resp:
-            if resp.status == 200:
-                text = await resp.text()
-                if "Multi stream daemon" in text or "udpxy status" in text:
-                    status_info = parse_udpxy_status(text)
-                    print(f"✅ {url} | 版本:{status_info['version']} | 最大客户端:{status_info['max_client']} | 当前连接:{status_info['current_conn']}", flush=True)
-                    return {
-                        "ip_port": ip_port,
-                        "ip": ip,
-                        "port": port,
-                        "version": status_info["version"],
-                        "max_client": status_info["max_client"],
-                        "current_conn": status_info["current_conn"],
-                        "geo": ""
-                    }
-    except Exception as e:
-        if DEBUG_MODE:
-            print(f"[DEBUG] HTTP访问异常 {ip_port} : {str(e)}", flush=True)
-    return None
+    print(f"✅ {ip_port} | TCP端口开放（status页面关闭）", flush=True)
+    return {
+        "ip_port": ip_port,
+        "ip": ip,
+        "port": port,
+        "version": "",
+        "max_client": "",
+        "current_conn": "",
+        "geo": ""
+    }
 
 
 def gen_ip_task(ip_info, port, mode):
