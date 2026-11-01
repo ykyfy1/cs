@@ -106,11 +106,12 @@ jobs:
             fi
           fi
           
-          # 调试输出：打印文件行数，看日志排查
+          # 调试输出：只打印行数，去掉cat zubo.txt，不再输出全部频道内容
           echo "====调试输出===="
           wc -l txt/*.txt
           wc -l zubo.txt
-          cat zubo.txt
+          # 下面这行cat删掉了！
+          # cat zubo.txt
 
       - name: 上传扫描结果&日志到Artifact
         uses: actions/upload-artifact@v4
