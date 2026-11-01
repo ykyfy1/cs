@@ -9,8 +9,8 @@ SPEED_RETRY=1           # 测速重试次数改为1次
 CITY_TOP_COUNT=30       # 单个城市结果保留前N条
 MERGE_TOP_COUNT=100     # 合并全部城市后保留前N条
 SAVE_LOG=1              # 1=保存日志，0=关闭日志保存
-MIN_STREAM_BYTES=200    # 降低到200字节，适配udpxy少量数据包
-CURL_STREAM_SECONDS=3   # 持续拉流时长（秒）
+MIN_STREAM_BYTES=200    # 主判定阈值
+CURL_STREAM_SECONDS=5   # 修改！拉长拉流时间至5秒，等待udpxy出包
 CHECK_TS=0              # 0=关闭TS校验(调试模式)
 # ====================================================================
 
@@ -241,7 +241,7 @@ fi
 
 log_print "开始并发测速，并发数：${SPEED_CONCURRENT}"
 
-# ===================== 测速函数：修复stat空值，MIN 200字节 =====================
+# ===================== 测速函数：增加宽松判定，拉流5秒 =====================
 speed_test(){
     local ip="$1"
     local url="http://$ip/$stream"
@@ -265,19 +265,21 @@ speed_test(){
             total_size=0
         fi
 
-        # 基础条件：字节大于最小阈值
+        # 【主判定】≥200字节直接有效
         if (( total_size >= MIN_STREAM_BYTES )); then
             if [ "$CHECK_TS" -eq 1 ]; then
-                # 开启TS校验模式，额外检测0x47
                 if head -c 1024 "$tmp_stream" | grep -q $'\x47'; then
                     valid=1
                     break
                 fi
             else
-                # 关闭TS校验，只要字节达标就直接判定有效（调试模式）
                 valid=1
                 break
             fi
+        # 【新增宽松分支】大于0字节，就算小于200，也判定可用（适配udpxy慢起播节点）
+        elif (( total_size > 0 )); then
+            valid=1
+            break
         fi
     done
 
