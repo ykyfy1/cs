@@ -198,7 +198,7 @@ def parse_udpxy_status(html_text):
     return info
 
 
-# ========== 修改后的check_udpxy：TCP通就判定有效，不再请求status页面 ==========
+# ========== 修改后的check_udpxy：区分status页面正常/关闭，并解析页面信息 ==========
 async def check_udpxy(ip_port, url_end, session):
     ip, port = ip_port.split(":")
     tcp_open = await tcp_check(ip, port, timeout=TCP_TIMEOUT)
@@ -206,14 +206,32 @@ async def check_udpxy(ip_port, url_end, session):
         return None
     if DEBUG_MODE:
         print(f"[DEBUG] TCP端口通：{ip_port}", flush=True)
-    print(f"✅ {ip_port} | TCP端口开放（status页面关闭）", flush=True)
+    
+    status_ok = False
+    status_html = ""
+    try:
+        status_url = f"http://{ip}:{port}{url_end}"
+        async with session.get(status_url, timeout=aiohttp.ClientTimeout(total=HTTP_TIMEOUT)) as resp:
+            if resp.status == 200:
+                status_ok = True
+                status_html = await resp.text()
+    except Exception:
+        status_ok = False
+
+    if status_ok:
+        print(f"✅ {ip_port} | TCP端口开放 (status页面正常)", flush=True)
+        status_info = parse_udpxy_status(status_html)
+    else:
+        print(f"✅ {ip_port} | TCP端口开放 (status页面关闭)", flush=True)
+        status_info = {"version": "", "max_client": "", "current_conn": ""}
+
     return {
         "ip_port": ip_port,
         "ip": ip,
         "port": port,
-        "version": "",
-        "max_client": "",
-        "current_conn": "",
+        "version": status_info["version"],
+        "max_client": status_info["max_client"],
+        "current_conn": status_info["current_conn"],
         "geo": ""
     }
 
@@ -377,7 +395,6 @@ async def multicast_province(config_file, semaphore, session, global_stop_event,
         elif mode == "full":
             print(f"\n开始扫描第一段固定 {ip_info}，范围 {ip_info}.1-100.1-100.1-100:{port}{url_end}", flush=True)
         elif mode == "range4":
-            a_seg, b_seg, c_seg, d_seg = ip_info
             print(f"\n开始扫描四段范围 {a_seg}.{b_seg}.{c_seg}.{d_seg}:{port}{url_end}", flush=True)
         else:
             print(f"\n开始扫描  http://{ip_info}:{port}{url_end}", flush=True)
