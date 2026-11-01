@@ -11,6 +11,7 @@ MERGE_TOP_COUNT=100     # 合并全部城市后保留前N条
 SAVE_LOG=1              # 1=保存日志，0=关闭日志保存
 MIN_STREAM_BYTES=10240  # 最小有效TS流字节 10KB，低于直接丢弃
 CURL_STREAM_SECONDS=3   # 持续拉流时长（秒）
+CHECK_TS=1              # 1=开启TS头校验；0=关闭TS校验(调试模式)
 # ====================================================================
 
 # 日志文件名称，带时间戳
@@ -79,7 +80,7 @@ mkdir -p ip txt template
 case $city_choice in
     1)
         city="Beijing_dianxin"
-        stream="rtp/239.94.0.103:5140"
+        stream="rtp/233.50.201.136:5140"
         ;;
     2)
         city="Shanghai_dianxin"
@@ -240,10 +241,11 @@ fi
 
 log_print "开始并发测速，并发数：${SPEED_CONCURRENT}"
 
-# ===================== 修改后的测速函数【增加TS流校验+最小字节过滤】 =====================
+# ===================== 测速函数：增加TS开关控制 =====================
 speed_test(){
     local ip="$1"
     local url="http://$ip/$stream"
+    # 每个IP独立临时文件，防止并发争抢
     local tmp_stream="/tmp/stream_${ip//./_}.tmp"
     rm -f "$tmp_stream"
 
@@ -255,18 +257,20 @@ speed_test(){
     local total_size=0
 
     for ((r=0; r<=SPEED_RETRY; r++)); do
-        # 拉流，保存流数据到临时文件，持续CURL_STREAM_SECONDS秒
-        curl --connect-timeout 3 --max-time ${CURL_STREAM_SECONDS} -o "$tmp_stream" -w "%{speed_download}" "$url" 2>/dev/null > raw_speed.tmp
-        raw_speed=$(cat raw_speed.tmp)
-        rm -f raw_speed.tmp
-
-        # 获取本次下载总字节
+        # curl: stderr丢弃，stdout分两路：保存视频流到文件，同时捕获speed_download返回值
+        raw_speed=$(curl --connect-timeout 3 --max-time ${CURL_STREAM_SECONDS} -o "$tmp_stream" -w "%{speed_download}" "$url" 2>/dev/null)
         total_size=$(stat -c%s "$tmp_stream" 2>/dev/null || echo 0)
 
-        # 校验1：总字节大于最小阈值
+        # 基础条件：字节大于最小阈值
         if (( total_size >= MIN_STREAM_BYTES )); then
-            # 校验2：检查前1KB是否包含TS同步字节 0x47 (MPEG-TS标识)
-            if head -c 1024 "$tmp_stream" | grep -q $'\x47'; then
+            if [ "$CHECK_TS" -eq 1 ]; then
+                # 开启TS校验模式，额外检测0x47
+                if head -c 1024 "$tmp_stream" | grep -q $'\x47'; then
+                    valid=1
+                    break
+                fi
+            else
+                # 关闭TS校验，只要字节达标就直接判定有效（调试模式）
                 valid=1
                 break
             fi
@@ -284,7 +288,7 @@ speed_test(){
         # 输出到测速结果文件
         echo "$a $ip"
         # 成功日志，stderr输出，仅控制台展示
-        echo "✅ 测速成功 $ip 速度: $a size:${total_size} 检测到TS流" >&2
+        echo "✅ 测速成功 $ip 速度: $a size:${total_size} CHECK_TS:${CHECK_TS}" >&2
     else
         # 测速失败日志，stderr输出，仅控制台展示
         echo "❌ 测速丢弃 $ip raw_speed:$raw_speed size:${total_size} valid:${valid}" >&2
@@ -293,7 +297,7 @@ speed_test(){
     rm -f "$tmp_stream"
 }
 export -f speed_test
-export SPEED_RETRY stream MIN_STREAM_BYTES CURL_STREAM_SECONDS
+export SPEED_RETRY stream MIN_STREAM_BYTES CURL_STREAM_SECONDS CHECK_TS
 
 # 并发测速
 cat "$good_ip" | xargs -P ${SPEED_CONCURRENT} -I {} bash -c 'speed_test "{}"' > $speed_log
