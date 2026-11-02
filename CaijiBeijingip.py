@@ -64,14 +64,22 @@ def is_valid_ipv4(s):
     parts = s.split(".")
     return all(0 <= int(p) <= 255 for p in parts)
 
+def is_ip_segment_expr(s):
+    """判断是否是简写IP网段，如 171.213 / 171.213.1 / 171.213.1-100"""
+    # 包含数字+点，就是网段表达式，排除纯域名
+    pat = r'^\d+(\.[\d,-]+)*$'
+    return bool(re.fullmatch(pat, s))
+
 def is_domain_str(s):
     """
     判断域名：
     1. 不是标准IPv4
-    2. 任意分段不能包含 '-'，带横杠直接判定不是域名（避免网段120-250误判域名）
+    2. 不是简写IP网段（新增判断，解决171.213误判域名）
     3. 支持纯数字域名，符合DNS域名格式
     """
     if is_valid_ipv4(s):
+        return False
+    if is_ip_segment_expr(s):
         return False
     # 网段表达式带有"-"，直接排除
     for seg in s.split('.'):
@@ -395,11 +403,10 @@ async def multicast_province(config_file, semaphore, session, global_stop_event,
         elif mode == "full":
             print(f"\n开始扫描第一段固定 {ip_info}，范围 {ip_info}.1-100.1-100.1-100:{port}{url_end}", flush=True)
         elif mode == "range4":
-            a_seg, b_seg, c_seg, d_seg = ip_info
             print(f"\n开始扫描四段范围 {a_seg}.{b_seg}.{c_seg}.{d_seg}:{port}{url_end}", flush=True)
         else:
             print(f"\n开始扫描  http://{ip_info}:{port}{url_end}", flush=True)
-        result = await scan_ip_port(ip_info, port, url_end, mode, max_find, semaphore, session, global_stop_event, total_valid, max_total_find)
+        result = await scan_ip_port(ip_info, port, url_end, mode, max_find, semaphore, session, total_valid, max_total_find)
         all_result.extend(result)
     # ====================== 扫描全部完成后，批量查询归属地 ======================
     if GEO_ENABLE and len(all_result) > 0:
