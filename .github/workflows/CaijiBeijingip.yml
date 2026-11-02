@@ -140,6 +140,8 @@ jobs:
             echo "✅ 源文件检测到更新，准备提交"
             git add zubo.txt
             git add txt/
+            git add ip/
+            git add logs/
             if [[ -n $(git status --porcelain) ]]; then
               git commit -m "🤖 GitHub Actions自动更新多城市源 ${{ github.run_id }}"
               git push
