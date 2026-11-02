@@ -36,6 +36,14 @@ jobs:
         run: |
           mkdir -p txt logs ip template
 
+      # ==========【新增：扫描前清空ip目录旧good_*文件，防止残留干扰测速】==========
+      - name: 清理ip目录历史good_*旧文件
+        run: |
+          rm -f ip/good_*.txt
+          rm -f ip/组播_*.txt
+          echo "✅ 已清理 ip/ 目录下旧的 good_*.txt 与 组播_*.txt"
+      # =====================================================================
+
       # 清理7天前旧日志
       - name: 清理7天前旧日志
         run: |
@@ -71,7 +79,7 @@ jobs:
           > zubo.txt
           # 在这里自定义城市顺序，新增城市直接追加一行
           city_list=(
-            "txt/Beijing_dianxin.txt"
+            #"txt/Beijing_dianxin.txt"
             "txt/Shanghai_dianxin.txt"
             #"txt/Guangzhou_dianxin.txt"
           )
