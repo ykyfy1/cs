@@ -275,7 +275,14 @@ speed_test(){
         else
             a="${raw_speed}B"
         fi
-        # 输出到测速结果文件
+
+        # ==========【新增阈值判断】小于30k直接跳过，不写入speed_log，不打印✅成功日志 ==========
+        kb_val=$(speed2kb "$a")
+        if (( $(echo "$kb_val < $MIN_SPEED_KB" | bc -l) ));then
+            # 低于阈值，仅保留【正在测速】，不输出成功记录、不进结果
+            return 0
+        fi
+        # >=30k 才输出到测速结果文件
         echo "$a $ip"
         # 成功日志，stderr输出，仅控制台展示
         echo "✅ 测速成功 $ip 速度: $a" >&2
@@ -285,14 +292,13 @@ speed_test(){
     fi
 }
 export -f speed_test
-export SPEED_RETRY stream
+export SPEED_RETRY stream MIN_SPEED_KB
 
 # 并发测速
 cat "$good_ip" | xargs -P ${SPEED_CONCURRENT} -I {} bash -c 'speed_test "{}"' > $speed_log
 
 log_print "测速完成，开始按速度降序排序"
-# ============【修改：过滤B单位，保留全部k/M结果存入result_ip（仅做排序展示）】============
-# 这里保留所有k/M结果在result_ip，方便日志查看，**写入txt和zubo时再执行MIN_SPEED_KB阈值过滤**
+# ============ 过滤B单位，保留k/M结果存入result_ip ============
 awk '
 function tokb(s){
     if(s ~ /M$/){
@@ -316,7 +322,7 @@ log_print "========= ${city} 测速排序结果 ========="
 cat "${result_ip}" | tee -a "${LOG_FILE}"
 log_print "========================================"
 
-# 生成城市txt文件，使用模板；【重点：只保留≥MIN_SPEED_KB的IP写入txt，B全部丢弃】
+# 生成城市txt文件，使用模板；只保留≥MIN_SPEED_KB的IP写入txt，B全部丢弃
 > tmp_all.txt
 count_valid=0
 while read -r line; do
