@@ -291,7 +291,8 @@ export SPEED_RETRY stream
 cat "$good_ip" | xargs -P ${SPEED_CONCURRENT} -I {} bash -c 'speed_test "{}"' > $speed_log
 
 log_print "测速完成，开始按速度降序排序"
-# ============【已修改：直接过滤B单位，不进入排序结果】============
+# ============【修改：过滤B单位，保留全部k/M结果存入result_ip（仅做排序展示）】============
+# 这里保留所有k/M结果在result_ip，方便日志查看，**写入txt和zubo时再执行MIN_SPEED_KB阈值过滤**
 awk '
 function tokb(s){
     if(s ~ /M$/){
@@ -302,7 +303,6 @@ function tokb(s){
     }
     return 0
   }
-# 直接排除B结尾的测速结果，不会写入result_ip
 $1 !~ /B$/ {
     kb=tokb($1); print kb "\t" $0
 }
@@ -323,7 +323,7 @@ while read -r line; do
     sp_str=$(echo $line | awk '{print $1}')
     ip_raw=$(echo $line | awk '{print $2}')
     kb_val=$(speed2kb "$sp_str")
-    # 低于阈值直接跳过
+    # 低于阈值直接跳过，不会写入城市txt
     if (( $(echo "$kb_val < $MIN_SPEED_KB" | bc -l) ));then
         continue
     fi
