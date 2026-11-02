@@ -298,19 +298,18 @@ export SPEED_RETRY stream MIN_SPEED_KB
 cat "$good_ip" | xargs -P ${SPEED_CONCURRENT} -I {} bash -c 'speed_test "{}"' > $speed_log
 
 log_print "测速完成，开始按速度降序排序"
-# ============ 过滤B单位，保留k/M结果存入result_ip ============
-awk '
+# ============【已修复：过滤B单位 + 过滤小于MIN_SPEED_KB的行，存入result_ip ============
+awk -v minkb="$MIN_SPEED_KB" '
 function tokb(s){
-    if(s ~ /M$/){
-        sub(/M/,"",s); return s*1024
-    }
-    if(s ~ /k$/){
-        sub(/k/,"",s); return s+0
-    }
+    if(s ~ /M$/){sub(/M/,"",s); return s*1024}
+    if(s ~ /k$/){sub(/k/,"",s); return s+0}
     return 0
-  }
-$1 !~ /B$/ {
-    kb=tokb($1); print kb "\t" $0
+}
+{
+    kb=tokb($1);
+    if($1 !~ /B$/ && kb >= minkb){
+        print kb "\t" $0
+    }
 }
 ' "$speed_log" | sort -k1,1nr | cut -f2- > "$result_ip"
 # ======================================================
