@@ -6,6 +6,8 @@ import time
 import json
 import csv
 import re
+import socket
+import ipaddress
 
 # ===================== 可配置参数 =====================
 SEMAPHORE_NUM = 35      # 本地用35，GA改成22
@@ -89,6 +91,19 @@ def is_domain_str(s):
     if re.fullmatch(domain_pat, s):
         return True
     return False
+
+# ========= 新增：域名解析函数（带重试） =========
+async def resolve_domain(domain: str):
+    """域名解析，重试2次，成功返回ip，失败返回None"""
+    retry_times = 2
+    for i in range(retry_times):
+        try:
+            ip = await asyncio.to_thread(socket.gethostbyname, domain)
+            return ip
+        except Exception:
+            if i < retry_times - 1:
+                await asyncio.sleep(0.25)
+    return None
 # ==========================================
 
 
@@ -206,19 +221,39 @@ def parse_udpxy_status(html_text):
     return info
 
 
-# ========== 修改后的check_udpxy：区分status页面正常/关闭，并解析页面信息 ==========
+# ========== 修改后的check_udpxy：加入域名解析逻辑 ==========
 async def check_udpxy(ip_port, url_end, session):
-    ip, port = ip_port.split(":")
-    tcp_open = await tcp_check(ip, port, timeout=TCP_TIMEOUT)
+    original_ip_port = ip_port
+    host, port = ip_port.split(":")
+    test_host = host
+    output_host = host
+
+    # 判断是域名，尝试解析
+    if is_domain_str(host):
+        resolved_ip = await resolve_domain(host)
+        if resolved_ip is not None:
+            # 解析成功：探测用IP，输出保存IP:port
+            test_host = resolved_ip
+            output_host = resolved_ip
+            if DEBUG_MODE:
+                print(f"域名解析成功 {host} -> {resolved_ip}", flush=True)
+        else:
+            # 解析失败：探测、输出都保留原始域名
+            test_host = host
+            output_host = host
+            if DEBUG_MODE:
+                print(f"域名解析失败，继续使用原域名 {host} 探测", flush=True)
+
+    tcp_open = await tcp_check(test_host, port, timeout=TCP_TIMEOUT)
     if not tcp_open:
         return None
     if DEBUG_MODE:
-        print(f"[DEBUG] TCP端口通：{ip_port}", flush=True)
+        print(f"[DEBUG] TCP端口通：{test_host}:{port}", flush=True)
     
     status_ok = False
     status_html = ""
     try:
-        status_url = f"http://{ip}:{port}{url_end}"
+        status_url = f"http://{test_host}:{port}{url_end}"
         async with session.get(status_url, timeout=aiohttp.ClientTimeout(total=HTTP_TIMEOUT)) as resp:
             if resp.status == 200:
                 status_ok = True
@@ -227,15 +262,15 @@ async def check_udpxy(ip_port, url_end, session):
         status_ok = False
 
     if status_ok:
-        print(f"✅ {ip_port} | TCP端口开放 (status页面正常)", flush=True)
+        print(f"✅ {output_host}:{port} | TCP端口开放 (status页面正常)", flush=True)
         status_info = parse_udpxy_status(status_html)
     else:
-        print(f"✅ {ip_port} | TCP端口开放 (status页面关闭)", flush=True)
+        print(f"✅ {output_host}:{port} | TCP端口开放 (status页面关闭)", flush=True)
         status_info = {"version": "", "max_client": "", "current_conn": ""}
 
     return {
-        "ip_port": ip_port,
-        "ip": ip,
+        "ip_port": f"{output_host}:{port}",
+        "ip": output_host,
         "port": port,
         "version": status_info["version"],
         "max_client": status_info["max_client"],
