@@ -55,18 +55,6 @@ def parse_range(s):
         return [int(s)]
 
 
-def parse_multi_ip_expr(expr):
-    """
-    解析逗号分隔多网段，示例：171-173,175.213-215,218.1-4,8.5-9,155
-    返回网段对象列表，给read_config循环处理
-    """
-    items = [x.strip() for x in expr.split(',') if x.strip()]
-    seg_list = []
-    for sub_expr in items:
-        seg_list.append(sub_expr)
-    return seg_list
-
-
 # ============ 新增域名识别函数 ============
 def is_valid_ipv4(s):
     """严格判断标准IPv4地址"""
@@ -113,7 +101,7 @@ def read_config(config_file):
                 line = line.strip()
                 if not line or line.startswith("#"):
                     continue
-                # 只拆分第一个冒号，区分【IP表达式】和【端口+参数】
+                # 只拆分第一个冒号，区分【IP四段表达式】和【端口+参数】
                 ip_expr, rest = line.split(':', 1)
                 # rest样例：4022|8888|8188,0,10
                 rest_parts = [x.strip() for x in rest.split(',')]
@@ -127,44 +115,34 @@ def read_config(config_file):
                     print(f"第{line_num}行未识别到有效端口: {line}", flush=True)
                     continue
 
-                # 支持逗号分割多网段表达式
-                multi_segs = parse_multi_ip_expr(ip_part)
-                for sub_ip_expr in multi_segs:
-                    dot_count = sub_ip_expr.count('.')
-                    for port in ports:
-                        # ========= 新增域名判断分支 =========
-                        if is_domain_str(sub_ip_expr):
-                            ip_configs.append(
-                                (sub_ip_expr, port, url_end, "domain", max_find)
-                            )
-                            print(
-                                f"第{line_num}：域名 {sub_ip_expr} 端口 {port_str}，"
-                                f"模式={url_flag}({url_end})，最多获取 {max_find if max_find else '不限'} 个", flush=True
-                            )
-                            continue
-                        # =====================================
-                        # ========= 原有IP网段逻辑完全保留 =========
-                        if 1 <= dot_count <= 3:
-                            segs = sub_ip_expr.split('.')
-                            # 不够4段，后面补上 "0-255"
-                            while len(segs) < 4:
-                                segs.append("0-255")
-                            ip_configs.append(
-                                ((segs[0], segs[1], segs[2], segs[3]), port, url_end, "range4", max_find)
-                            )
-                        elif dot_count == 0:
-                            first_seg = sub_ip_expr
-                            ip_configs.append(
-                                (first_seg, port, url_end, "full", max_find)
-                            )
-                        else:
-                            print(f"第{line_num}行 子网段{sub_ip_expr}格式异常，跳过", flush=True)
-                            continue
-
+                for port in ports:
+                    # ========= 新增域名判断分支 =========
+                    if is_domain_str(ip_part):
+                        ip_configs.append(
+                            (ip_part, port, url_end, "domain", max_find)
+                        )
                         print(
-                            f"第{line_num}：网段{sub_ip_expr} 端口 {port_str}，"
+                            f"第{line_num}：域名 {ip_part} 端口 {port_str}，"
                             f"模式={url_flag}({url_end})，最多获取 {max_find if max_find else '不限'} 个", flush=True
                         )
+                        continue
+                    # =====================================
+                    # ========= 【重点新逻辑】四段表达式，.分割4段，段内逗号为多范围 =========
+                    seg_expr_list = ip_part.split('.')
+                    # 不足4段自动补齐空
+                    while len(seg_expr_list) < 4:
+                        seg_expr_list.append("")
+                    seg_expr_list = seg_expr_list[:4]
+                    # 四个段位全部保留原始字符串（支持 171-173,175 这种逗号多选）
+                    sega, segb, segc, segd = seg_expr_list
+                    ip_configs.append(
+                        ((sega, segb, segc, segd), port, url_end, "range4", max_find)
+                    )
+
+                    print(
+                        f"第{line_num}：网段 {ip_part} 端口 {port_str}，"
+                        f"模式={url_flag}({url_end})，最多获取 {max_find if max_find else '不限'} 个", flush=True
+                    )
     except Exception as e:
         print(f"读取文件错误: {e}", flush=True)
         return None
@@ -272,10 +250,15 @@ def gen_ip_task(ip_info, port, mode):
                     yield f"{first}.{x}.{y}.{z}:{port}"
     elif mode == "range4":
         a_seg, b_seg, c_seg, d_seg = ip_info
-        a_list = parse_range(a_seg)
-        b_list = parse_range(b_seg)
-        c_list = parse_range(c_seg)
-        d_list = parse_range(d_seg)
+        # 如果段位为空，填充0-255
+        def safe_parse(s):
+            if s is None or s.strip() == "":
+                return parse_range("0-255")
+            return parse_range(s)
+        a_list = safe_parse(a_seg)
+        b_list = safe_parse(b_seg)
+        c_list = safe_parse(c_seg)
+        d_list = safe_parse(d_seg)
         for a in a_list:
             for b in b_list:
                 for c in c_list:
@@ -298,10 +281,14 @@ def count_total_tasks(ip_info, port, mode):
         total = 100 * 100 * 100
     elif mode == "range4":
         a_seg, b_seg, c_seg, d_seg = ip_info
-        a_list = parse_range(a_seg)
-        b_list = parse_range(b_seg)
-        c_list = parse_range(c_seg)
-        d_list = parse_range(d_seg)
+        def safe_parse(s):
+            if s is None or s.strip() == "":
+                return parse_range("0-255")
+            return parse_range(s)
+        a_list = safe_parse(a_seg)
+        b_list = safe_parse(b_seg)
+        c_list = safe_parse(c_seg)
+        d_list = safe_parse(d_seg)
         total = len(a_list)*len(b_list)*len(c_list)*len(d_list)
     else:
         total = 256 * 255
