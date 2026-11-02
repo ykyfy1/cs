@@ -45,15 +45,6 @@
     "geo": "上海市 上海 | China Telecom (Group)"
   },
   {
-    "ip_port": "116.233.17.119:4022",
-    "ip": "116.233.17.119",
-    "port": "4022",
-    "version": "",
-    "max_client": "",
-    "current_conn": "",
-    "geo": "上海市 上海 | China Telecom (Group)"
-  },
-  {
     "ip_port": "116.233.42.135:4022",
     "ip": "116.233.42.135",
     "port": "4022",
@@ -128,15 +119,6 @@
   {
     "ip_port": "116.237.247.101:4022",
     "ip": "116.237.247.101",
-    "port": "4022",
-    "version": "v. 1.0 Build 25",
-    "max_client": "",
-    "current_conn": "",
-    "geo": "上海市 上海 | China Telecom (Group)"
-  },
-  {
-    "ip_port": "116.237.253.214:4022",
-    "ip": "116.237.253.214",
     "port": "4022",
     "version": "v. 1.0 Build 25",
     "max_client": "",
