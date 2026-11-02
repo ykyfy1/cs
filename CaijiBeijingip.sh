@@ -237,6 +237,18 @@ if [ ! -f "$good_ip" ];then
     cleanup 0
 fi
 
+# =====================【新增防护代码，防止读取旧IP文件】=====================
+# 获取脚本启动时间，判断good_ip文件是否是本次python扫描新生成
+script_start_epoch=$(date +%s)
+file_mtime=$(stat -c %Y "${good_ip}")
+time_diff=$(( script_start_epoch - file_mtime ))
+# 如果文件修改时间早于60秒前，判定为旧文件（python本次没有成功更新）
+if [ ${time_diff} -gt 60 ];then
+    log_print "❌ 警告！${good_ip} 是旧文件（${time_diff}秒前生成），Python扫描未成功刷新，为避免测速旧IP，直接跳过该城市！"
+    cleanup 0
+fi
+# ==========================================================================
+
 sort "$good_ip" | uniq | sed '/^\s*$/d' > tmp_filter_ip
 mv tmp_filter_ip "$good_ip"
 
