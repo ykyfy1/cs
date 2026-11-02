@@ -285,7 +285,7 @@ def count_total_tasks(ip_info, port, mode):
     return total
 
 
-async def scan_ip_port(ip_info, port, url_end, mode, max_find, semaphore, session, global_stop_event, total_valid_ref, max_global_find):
+async def scan_ip_port(ip_info, port, url_end, mode, max_find, semaphore_num, session, global_stop_event, total_valid_ref, max_global_find):
     valid_list = []
     checked_count = 0
     total_task = count_total_tasks(ip_info, port, mode)
@@ -304,7 +304,7 @@ async def scan_ip_port(ip_info, port, url_end, mode, max_find, semaphore, sessio
                 break
             await task_queue.put(ip_port_item)
         # 哨兵
-        for _ in range(SEMAPHORE_NUM):
+        for _ in range(semaphore_num):
             await task_queue.put(None)
 
     async def worker():
@@ -353,7 +353,7 @@ async def scan_ip_port(ip_info, port, url_end, mode, max_find, semaphore, sessio
             task_queue.task_done()
 
     producer_task = asyncio.create_task(producer())
-    workers = [asyncio.create_task(worker()) for _ in range(semaphore)]
+    workers = [asyncio.create_task(worker()) for _ in range(semaphore_num)]
     await producer_task
     await asyncio.gather(*workers)
 
@@ -363,7 +363,7 @@ async def scan_ip_port(ip_info, port, url_end, mode, max_find, semaphore, sessio
     return valid_list
 
 
-async def scan_city(config_file, sem, session, global_stop_event, total_valid_ref, max_global_find):
+async def scan_city(config_file, sem_num, session, global_stop_event, total_valid_ref, max_global_find):
     filename = os.path.basename(config_file)
     province, isp = filename.split("_")[0:2]
     print(f"\n==================== 开始采集：{province}_{isp} ====================",flush=True)
@@ -384,7 +384,7 @@ async def scan_city(config_file, sem, session, global_stop_event, total_valid_re
             print(f"\n---- 单A段扫描 {ip_info}.x.x.x:{port}{url_end}",flush=True)
         else:
             print(f"\n---- 网段扫描 {ip_info}:{port}{url_end}",flush=True)
-        part_res = await scan_ip_port(ip_info, port, url_end, mode, max_find, sem, session, global_stop_event, total_valid_ref, max_global_find)
+        part_res = await scan_ip_port(ip_info, port, url_end, mode, max_find, sem_num, session, global_stop_event, total_valid_ref, max_global_find)
         all_valid.extend(part_res)
     # 归属地查询
     if GEO_ENABLE and len(all_valid) > 0:
@@ -424,7 +424,7 @@ async def scan_city(config_file, sem, session, global_stop_event, total_valid_re
 
 
 async def main():
-    sem = asyncio.Semaphore(SEMAPHORE_NUM)
+    sem_num = SEMAPHORE_NUM
     global_stop = asyncio.Event()
     total_valid = [0]
     conn = aiohttp.TCPConnector(ttl_dns_cache=300)
@@ -435,7 +435,7 @@ async def main():
         for f in cfg_files:
             if global_stop.is_set():
                 break
-            city_res = await scan_city(f, sem, sess, global_stop, total_valid, MAX_TOTAL_FIND)
+            city_res = await scan_city(f, sem_num, sess, global_stop, total_valid, MAX_TOTAL_FIND)
             all_result.extend(city_res)
     print(f"\n==================== 全部采集任务结束 ====================")
     print(f"全局总共有效节点：{len(all_result)}",flush=True)
