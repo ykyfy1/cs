@@ -8,10 +8,10 @@ import csv
 import re
 
 # ===================== 可配置参数 =====================
-SEMAPHORE_NUM = 35      # 本地用35，GA改成22
-TCP_TIMEOUT = 0.35      # 本地0.35，GA改成0.4
+SEMAPHORE_NUM = 22      # GA环境固定22
+TCP_TIMEOUT = 0.6       # GA延长TCP握手超时
 HTTP_TIMEOUT = 1.0
-DEBUG_MODE = False
+DEBUG_MODE = True       # 开启调试，打印TCP详情
 GEO_SEMAPHORE = 8
 GEO_ENABLE = True
 PRINT_STEP_PCT = 2
@@ -101,7 +101,7 @@ def read_config(config_file):
                 line = line.strip()
                 if not line or line.startswith("#"):
                     continue
-                # 只拆分第一个冒号，区分【IP四段表达式】和【端口+参数】
+                # 只拆分第一个冒号，区分【IP表达式】和【端口+参数】
                 ip_expr, rest = line.split(':', 1)
                 # rest样例：4022|8888|8188,0,10
                 rest_parts = [x.strip() for x in rest.split(',')]
@@ -115,6 +115,7 @@ def read_config(config_file):
                     print(f"第{line_num}行未识别到有效端口: {line}", flush=True)
                     continue
 
+                dot_count = ip_part.count('.')
                 for port in ports:
                     # ========= 新增域名判断分支 =========
                     if is_domain_str(ip_part):
@@ -127,20 +128,26 @@ def read_config(config_file):
                         )
                         continue
                     # =====================================
-                    # ========= 【重点新逻辑】四段表达式，.分割4段，段内逗号为多范围 =========
-                    seg_expr_list = ip_part.split('.')
-                    # 不足4段自动补齐空
-                    while len(seg_expr_list) < 4:
-                        seg_expr_list.append("")
-                    seg_expr_list = seg_expr_list[:4]
-                    # 四个段位全部保留原始字符串（支持 171-173,175 这种逗号多选）
-                    sega, segb, segc, segd = seg_expr_list
-                    ip_configs.append(
-                        ((sega, segb, segc, segd), port, url_end, "range4", max_find)
-                    )
+                    # ========= 原有IP网段逻辑完全保留 =========
+                    if 1 <= dot_count <= 3:
+                        segs = ip_part.split('.')
+                        # 不够4段，后面补上 "0-255"
+                        while len(segs) < 4:
+                            segs.append("0-255")
+                        ip_configs.append(
+                            ((segs[0], segs[1], segs[2], segs[3]), port, url_end, "range4", max_find)
+                        )
+                    elif dot_count == 0:
+                        first_seg = ip_part
+                        ip_configs.append(
+                            (first_seg, port, url_end, "full", max_find)
+                        )
+                    else:
+                        print(f"第{line_num}行IP段格式异常，跳过: {line}", flush=True)
+                        continue
 
                     print(
-                        f"第{line_num}：网段 {ip_part} 端口 {port_str}，"
+                        f"第{line_num}：{ip_part} 端口 {port_str}，"
                         f"模式={url_flag}({url_end})，最多获取 {max_find if max_find else '不限'} 个", flush=True
                     )
     except Exception as e:
@@ -250,15 +257,10 @@ def gen_ip_task(ip_info, port, mode):
                     yield f"{first}.{x}.{y}.{z}:{port}"
     elif mode == "range4":
         a_seg, b_seg, c_seg, d_seg = ip_info
-        # 如果段位为空，填充0-255
-        def safe_parse(s):
-            if s is None or s.strip() == "":
-                return parse_range("0-255")
-            return parse_range(s)
-        a_list = safe_parse(a_seg)
-        b_list = safe_parse(b_seg)
-        c_list = safe_parse(c_seg)
-        d_list = safe_parse(d_seg)
+        a_list = parse_range(a_seg)
+        b_list = parse_range(b_seg)
+        c_list = parse_range(c_seg)
+        d_list = parse_range(d_seg)
         for a in a_list:
             for b in b_list:
                 for c in c_list:
@@ -281,14 +283,10 @@ def count_total_tasks(ip_info, port, mode):
         total = 100 * 100 * 100
     elif mode == "range4":
         a_seg, b_seg, c_seg, d_seg = ip_info
-        def safe_parse(s):
-            if s is None or s.strip() == "":
-                return parse_range("0-255")
-            return parse_range(s)
-        a_list = safe_parse(a_seg)
-        b_list = safe_parse(b_seg)
-        c_list = safe_parse(c_seg)
-        d_list = safe_parse(d_seg)
+        a_list = parse_range(a_seg)
+        b_list = parse_range(b_seg)
+        c_list = parse_range(c_seg)
+        d_list = parse_range(d_seg)
         total = len(a_list)*len(b_list)*len(c_list)*len(d_list)
     else:
         total = 256 * 255
