@@ -3,8 +3,6 @@ import glob
 import asyncio
 import aiohttp
 import time
-import json
-import csv
 import re
 
 # ===================== 可配置参数 =====================
@@ -55,9 +53,8 @@ def parse_range(s):
         return [int(s)]
 
 
-# ============ 域名识别函数（完全保留） ============
+# ============ 域名识别函数 ============
 def is_valid_ipv4(s):
-    """严格匹配标准IPv4"""
     pat = r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$'
     if not re.fullmatch(pat, s):
         return False
@@ -65,12 +62,10 @@ def is_valid_ipv4(s):
     return all(0 <= int(p) <= 255 for p in parts)
 
 def is_ip_segment_expr(s):
-    """判断是否为IP网段表达式，如171.213 / 171.213.1-100"""
     pat = r'^\d+(\.[\d,-]+)*$'
     return bool(re.fullmatch(pat, s))
 
 def is_domain_str(s):
-    """判断域名，排除IP和网段表达式，支持纯数字域名"""
     if is_valid_ipv4(s):
         return False
     if is_ip_segment_expr(s):
@@ -92,9 +87,7 @@ def read_config(config_file):
                 line = line.strip()
                 if not line or line.startswith("#"):
                     continue
-                # 只分割第一个冒号，区分IP表达式 和 端口参数
                 ip_expr, rest = line.split(':', 1)
-                # rest示例：4022|8888|8188,0,10
                 rest_parts = [x.strip() for x in rest.split(',')]
                 port_str = rest_parts[0].strip()
                 url_flag = int(rest_parts[1]) if len(rest_parts)>=2 else 0
@@ -107,7 +100,6 @@ def read_config(config_file):
                     continue
 
                 for port in ports:
-                    # 域名识别分支
                     if is_domain_str(ip_part):
                         ip_configs.append(
                             (ip_part, port, url_end, "domain", max_find)
@@ -117,15 +109,12 @@ def read_config(config_file):
                             f"模式={url_flag}({url_end})，最多获取 {max_find if max_find else '不限'} 个", flush=True
                         )
                         continue
-                    # IP网段解析，修复支持四段全部带逗号/横杠
                     segs = ip_part.split('.')
                     if len(segs) == 4:
-                        # a.b.c.d 完整四段表达式
                         ip_configs.append(
                             ((segs[0], segs[1], segs[2], segs[3]), port, url_end, "range4", max_find)
                         )
                     elif 1 <= len(segs) <= 3:
-                        # 不足四段自动补 0-255
                         while len(segs) < 4:
                             segs.append("0-255")
                         ip_configs.append(
@@ -151,7 +140,6 @@ def read_config(config_file):
 
 
 async def get_ip_geo(session, ip, sem):
-    """异步查询IP归属地，带缓存"""
     if ip in geo_cache:
         return geo_cache[ip]
     try:
@@ -171,7 +159,6 @@ async def get_ip_geo(session, ip, sem):
 
 
 async def tcp_check(ip, port, timeout=0.35):
-    """TCP端口连通检测"""
     try:
         reader, writer = await asyncio.wait_for(asyncio.open_connection(ip, int(port)), timeout=timeout)
         writer.close()
@@ -182,7 +169,6 @@ async def tcp_check(ip, port, timeout=0.35):
 
 
 def parse_udpxy_status(html_text):
-    """解析udpxy status页面，提取版本、最大连接等信息"""
     info = {
         "version": "",
         "max_client": "",
@@ -201,7 +187,6 @@ def parse_udpxy_status(html_text):
 
 
 async def check_udpxy(ip_port, url_end, session):
-    """检测udpxy，区分status页面开启/关闭"""
     ip, port = ip_port.split(":")
     tcp_ok = await tcp_check(ip, port, timeout=TCP_TIMEOUT)
     if not tcp_ok:
@@ -239,7 +224,6 @@ async def check_udpxy(ip_port, url_end, session):
 
 
 def gen_ip_task(ip_info, port, mode):
-    """生成IP任务，懒加载"""
     if mode == "domain":
         yield f"{ip_info}:{port}"
     elif mode == "full":
@@ -267,7 +251,6 @@ def gen_ip_task(ip_info, port, mode):
 
 
 def count_total_tasks(ip_info, port, mode):
-    """统计IP总数，用于进度条"""
     total = 0
     if mode == "domain":
         total = 1
@@ -285,7 +268,7 @@ def count_total_tasks(ip_info, port, mode):
     return total
 
 
-async def scan_ip_port(ip_info, port, url_end, mode, max_find, semaphore_num, session, global_stop_event, total_valid_ref, max_global_find):
+async def scan_ip_port(ip_info, port, url_end, mode, max_find, worker_num, session, global_stop_event, total_valid_ref, max_global_find):
     valid_list = []
     checked_count = 0
     total_task = count_total_tasks(ip_info, port, mode)
@@ -303,8 +286,7 @@ async def scan_ip_port(ip_info, port, url_end, mode, max_find, semaphore_num, se
             if stop_flag or global_stop_event.is_set():
                 break
             await task_queue.put(ip_port_item)
-        # 哨兵
-        for _ in range(semaphore_num):
+        for _ in range(worker_num):
             await task_queue.put(None)
 
     async def worker():
@@ -324,12 +306,7 @@ async def scan_ip_port(ip_info, port, url_end, mode, max_find, semaphore_num, se
             if current_step > last_print_pct:
                 last_print_pct = current_step
                 ratio = checked_count / total_task
-                if ratio < 0.33:
-                    bc = "\033[91m"
-                elif ratio <0.66:
-                    bc = "\033[93m"
-                else:
-                    bc = "\033[92m"
+                bc = "\033[91m" if ratio <0.33 else ("\033[93m" if ratio<0.66 else "\033[92m")
                 reset = "\033[0m"
                 fill = int(bar_len * ratio)
                 bar = "█"*fill + " "*(bar_len-fill)
@@ -342,18 +319,16 @@ async def scan_ip_port(ip_info, port, url_end, mode, max_find, semaphore_num, se
             if res:
                 valid_list.append(res)
                 total_valid_ref[0] += 1
-                # 单网段上限
                 if max_find is not None and len(valid_list)>=max_find:
                     print(f"\n✅ 本段收集够{max_find}个，停止扫描",flush=True)
                     stop_flag = True
-                # 全局上限
                 if max_global_find and total_valid_ref[0]>=max_global_find:
                     print(f"\n🚨 全局收集到达上限，全部任务停止",flush=True)
                     global_stop_event.set()
             task_queue.task_done()
 
     producer_task = asyncio.create_task(producer())
-    workers = [asyncio.create_task(worker()) for _ in range(semaphore_num)]
+    workers = [asyncio.create_task(worker()) for _ in range(worker_num)]
     await producer_task
     await asyncio.gather(*workers)
 
@@ -363,7 +338,7 @@ async def scan_ip_port(ip_info, port, url_end, mode, max_find, semaphore_num, se
     return valid_list
 
 
-async def scan_city(config_file, sem_num, session, global_stop_event, total_valid_ref, max_global_find):
+async def scan_city(config_file, worker_num, session, global_stop_event, total_valid_ref, max_global_find):
     filename = os.path.basename(config_file)
     province, isp = filename.split("_")[0:2]
     print(f"\n==================== 开始采集：{province}_{isp} ====================",flush=True)
@@ -384,9 +359,8 @@ async def scan_city(config_file, sem_num, session, global_stop_event, total_vali
             print(f"\n---- 单A段扫描 {ip_info}.x.x.x:{port}{url_end}",flush=True)
         else:
             print(f"\n---- 网段扫描 {ip_info}:{port}{url_end}",flush=True)
-        part_res = await scan_ip_port(ip_info, port, url_end, mode, max_find, sem_num, session, global_stop_event, total_valid_ref, max_global_find)
+        part_res = await scan_ip_port(ip_info, port, url_end, mode, max_find, worker_num, session, global_stop_event, total_valid_ref, max_global_find)
         all_valid.extend(part_res)
-    # 归属地查询
     if GEO_ENABLE and len(all_valid) > 0:
         print(f"\n🔍 批量查询归属地，共{len(all_valid)}个节点",flush=True)
         geo_sem = asyncio.Semaphore(GEO_SEMAPHORE)
@@ -398,7 +372,6 @@ async def scan_city(config_file, sem_num, session, global_stop_event, total_vali
                     obj["geo"] = await get_ip_geo(geo_session, obj["ip"], geo_sem)
                 tasks.append(asyncio.create_task(fill_geo(item)))
             await asyncio.gather(*tasks, return_exceptions=True)
-    # 排序：优先max_client降序，再ip，再端口；域名放最后
     def sort_key(x):
         try:
             mc = int(x["max_client"])
@@ -424,7 +397,7 @@ async def scan_city(config_file, sem_num, session, global_stop_event, total_vali
 
 
 async def main():
-    sem_num = SEMAPHORE_NUM
+    worker_num = SEMAPHORE_NUM
     global_stop = asyncio.Event()
     total_valid = [0]
     conn = aiohttp.TCPConnector(ttl_dns_cache=300)
@@ -435,7 +408,7 @@ async def main():
         for f in cfg_files:
             if global_stop.is_set():
                 break
-            city_res = await scan_city(f, sem_num, sess, global_stop, total_valid, MAX_TOTAL_FIND)
+            city_res = await scan_city(f, worker_num, sess, global_stop, total_valid, MAX_TOTAL_FIND)
             all_result.extend(city_res)
     print(f"\n==================== 全部采集任务结束 ====================")
     print(f"全局总共有效节点：{len(all_result)}",flush=True)
