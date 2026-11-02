@@ -8,10 +8,10 @@ import csv
 import re
 
 # ===================== 可配置参数 =====================
-SEMAPHORE_NUM = 22      # GA环境固定22
-TCP_TIMEOUT = 0.6       # GA延长TCP握手超时
+SEMAPHORE_NUM = 35      # 本地用35，GA改成22
+TCP_TIMEOUT = 0.35      # 本地0.35，GA改成0.4
 HTTP_TIMEOUT = 1.0
-DEBUG_MODE = True       # 开启调试，打印TCP详情
+DEBUG_MODE = False
 GEO_SEMAPHORE = 8
 GEO_ENABLE = True
 PRINT_STEP_PCT = 2
