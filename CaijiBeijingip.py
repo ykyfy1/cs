@@ -403,10 +403,10 @@ async def multicast_province(config_file, semaphore, session, global_stop_event,
         elif mode == "full":
             print(f"\n开始扫描第一段固定 {ip_info}，范围 {ip_info}.1-100.1-100.1-100:{port}{url_end}", flush=True)
         elif mode == "range4":
-            print(f"\n开始扫描四段范围 {a_seg}.{b_seg}.{c_seg}.{d_seg}:{port}{url_end}", flush=True)
+            print(f"\n开始扫描四段范围 {ip_info[0]}.{ip_info[1]}.{ip_info[2]}.{ip_info[3]}:{port}{url_end}", flush=True)
         else:
             print(f"\n开始扫描  http://{ip_info}:{port}{url_end}", flush=True)
-        result = await scan_ip_port(ip_info, port, url_end, mode, max_find, semaphore, session, total_valid, max_total_find)
+        result = await scan_ip_port(ip_info, port, url_end, mode, max_find, semaphore, session, global_stop_event, total_valid, max_total_find)
         all_result.extend(result)
     # ====================== 扫描全部完成后，批量查询归属地 ======================
     if GEO_ENABLE and len(all_result) > 0:
