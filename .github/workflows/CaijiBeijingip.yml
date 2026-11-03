@@ -121,6 +121,22 @@ jobs:
           wc -l zubo.txt
           # 下面这行cat删掉了！
           # cat zubo.txt
+
+          # ==========【新增加密模块：加密成功删除明文zubo.txt】==========
+          log_print() { echo "[$(date +'%Y-%m-%d %H:%M:%S')] $1"; }
+          if [ -f "zubo.txt" ] && [ -s "zubo.txt" ]; then
+            log_print "检测到zubo.txt，开始加密生成 zubo.enc"
+            openssl enc -aes-256-cbc -salt -in zubo.txt -out zubo.enc -k "$ZUBO_PASSWORD"
+            # 判断加密命令是否执行成功
+            if [ $? -eq 0 ] && [ -f "zubo.enc" ] && [ -s "zubo.enc" ]; then
+              log_print "✅ 加密成功，删除明文 zubo.txt"
+              rm -f zubo.txt
+            else
+              log_print "❌ 加密失败，保留明文zubo.txt用于排查问题"
+            fi
+          else
+            log_print "zubo.txt 文件为空或不存在，跳过加密，不生成zubo.enc"
+          fi
         env:
           ZUBO_PASSWORD: ${{ secrets.ZUBO_PASSWORD }}
 
@@ -145,12 +161,14 @@ jobs:
           
           git reset HEAD .
           
-          # 对比最终zubo 和 运行前备份
-          if diff -q zubo.txt zubo_bf.txt >/dev/null ; then
-            echo "ℹ️ 新源与旧源内容完全一致，无需提交，直接结束"
-          else
+          # 对比【加密前的备份】zubo_bf.txt
+          if diff -q zubo_bf.txt zubo_bf.txt >/dev/null ; then
+            echo "ℹ️ 对比备份文件逻辑"
+          fi
+
+          # 判断仓库变更，只提交zubo.enc，不再提交zubo.txt明文
+          if [[ -n $(git status --porcelain zubo.enc txt/ ip/ logs/) ]]; then
             echo "✅ 源文件检测到更新，准备提交"
-            git add zubo.txt
             git add zubo.enc
             git add txt/
             git add ip/
@@ -161,4 +179,6 @@ jobs:
             else
               echo "✅ git无变更，跳过提交"
             fi
+          else
+            echo "ℹ️ 文件无更新，跳过git提交"
           fi
