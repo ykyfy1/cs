@@ -1,43 +1,7 @@
 [
   {
-    "ip_port": "116.233.17.119:4022",
-    "ip": "116.233.17.119",
-    "port": "4022",
-    "version": "",
-    "max_client": "",
-    "current_conn": "",
-    "geo": "上海市 上海 | China Telecom (Group)"
-  },
-  {
-    "ip_port": "116.233.42.135:4022",
-    "ip": "116.233.42.135",
-    "port": "4022",
-    "version": "",
-    "max_client": "",
-    "current_conn": "",
-    "geo": "上海市 上海 | China Telecom (Group)"
-  },
-  {
-    "ip_port": "116.233.64.11:4022",
-    "ip": "116.233.64.11",
-    "port": "4022",
-    "version": "",
-    "max_client": "",
-    "current_conn": "",
-    "geo": "上海市 上海 | China Telecom (Group)"
-  },
-  {
     "ip_port": "116.233.92.194:4022",
     "ip": "116.233.92.194",
-    "port": "4022",
-    "version": "",
-    "max_client": "",
-    "current_conn": "",
-    "geo": "上海市 上海 | China Telecom (Group)"
-  },
-  {
-    "ip_port": "116.233.96.10:4022",
-    "ip": "116.233.96.10",
     "port": "4022",
     "version": "",
     "max_client": "",
