@@ -208,14 +208,10 @@ if [ "$city_choice" -eq 0 ];then
     log_print "✅ 全局合并完成，zubo.txt 使用#EXTINF模板格式，保留前${MERGE_TOP_COUNT}条"
     log_print "==================== 全局合并完成 ===================="
 
-    # =========【批量模式 加密zubo.txt生成zubo.enc + 备份明文】=========
+    # =========【批量模式 加密zubo.txt生成zubo.enc】=========
     if [ -f "zubo.txt" ] && [ -s "zubo.txt" ]; then
         log_print "检测到非空zubo.txt，开始加密生成 zubo.enc"
-        # 新增：加密前备份明文，放在artifact下载使用，不会提交github仓库
-        cp zubo.txt zubo_plain_backup.txt
         openssl enc -aes-256-cbc -salt -in zubo.txt -out zubo.enc -k "$ZUBO_PASSWORD"
-        log_print "✅ 加密成功，删除明文 zubo.txt"
-        rm zubo.txt
     else
         log_print "zubo.txt 文件为空或不存在，跳过加密，不生成zubo.enc"
     fi
@@ -381,3 +377,11 @@ rm -f tmp_all.txt $speed_log $result_ip
 log_print "${city} 测速完成，文件输出至 txt/${city}.txt，仅保留 >=${MIN_SPEED_KB}k 有效IP，B单位全部过滤"
 
 cleanup 0
+
+# 单城市模式：加密明文zubo.txt，输出 zubo.enc，和网页解密算法匹配
+if [ -f "zubo.txt" ] && [ -s "zubo.txt" ]; then
+    log_print "检测到zubo.txt，开始加密生成 zubo.enc"
+    openssl enc -aes-256-cbc -salt -in zubo.txt -out zubo.enc -k "$ZUBO_PASSWORD"
+else
+    log_print "zubo.txt 文件为空或不存在，跳过加密，不生成zubo.enc"
+fi
