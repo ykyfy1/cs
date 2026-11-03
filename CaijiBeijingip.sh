@@ -116,7 +116,7 @@ case $city_choice in
         ;;
 esac
 
-# ===================== 全局合并部分（修复清空zubo致命BUG）=====================
+# ===================== 全局合并部分（修复清空zubo致命BUG + 增加批量模式加密）=====================
 if [ "$city_choice" -eq 0 ];then
     > zubo_merge_raw.txt
 
@@ -207,6 +207,15 @@ if [ "$city_choice" -eq 0 ];then
 
     log_print "✅ 全局合并完成，zubo.txt 使用#EXTINF模板格式，保留前${MERGE_TOP_COUNT}条"
     log_print "==================== 全局合并完成 ===================="
+
+    # =========【批量模式 加密zubo.txt生成zubo.enc】=========
+    if [ -f "zubo.txt" ] && [ -s "zubo.txt" ]; then
+        log_print "检测到非空zubo.txt，开始加密生成 zubo.enc"
+        openssl enc -aes-256-cbc -salt -in zubo.txt -out zubo.enc -k "$ZUBO_PASSWORD"
+    else
+        log_print "zubo.txt 文件为空或不存在，跳过加密，不生成zubo.enc"
+    fi
+    # ======================================================
 
     # 清理临时速度文件和垃圾文件
     rm -f ip/tmp_speed_*.txt
@@ -369,10 +378,10 @@ log_print "${city} 测速完成，文件输出至 txt/${city}.txt，仅保留 >=
 
 cleanup 0
 
-# 加密明文zubo.txt，输出 zubo.enc，和网页解密算法匹配
-if [ -f "zubo.txt" ]; then
+# 单城市模式：加密明文zubo.txt，输出 zubo.enc，和网页解密算法匹配
+if [ -f "zubo.txt" ] && [ -s "zubo.txt" ]; then
     log_print "检测到zubo.txt，开始加密生成 zubo.enc"
     openssl enc -aes-256-cbc -salt -in zubo.txt -out zubo.enc -k "$ZUBO_PASSWORD"
 else
-    log_print "zubo.txt 文件不存在，跳过加密，不生成zubo.enc"
+    log_print "zubo.txt 文件为空或不存在，跳过加密，不生成zubo.enc"
 fi
