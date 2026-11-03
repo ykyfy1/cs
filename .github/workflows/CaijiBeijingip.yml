@@ -144,14 +144,11 @@ jobs:
 
       # ====================== 【Cloudflare Pages自动部署】 ======================
       - name: Deploy to Cloudflare Pages
-        uses: cloudflare/pages-action@1
+        uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CF_API_TOKEN }}
           accountId: ${{ secrets.CF_ACCOUNT_ID }}
-          projectName: ${{ secrets.CF_PROJECT_NAME }}
-          # 只上传当前目录（包含zubo.m3u）
-          directory: .
-          branch: main
+          command: pages deploy . --project-name=${{ secrets.CF_PROJECT_NAME }}
 
       # 文件校验恢复完成之后，再执行git add
       - name: 更新源（文件变更才提交，无变化直接跳过）
