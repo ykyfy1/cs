@@ -129,15 +129,14 @@ jobs:
         env:
           ZUBO_PASSWORD: ${{ secrets.ZUBO_PASSWORD }}
 
-      # ====================== ✅【Cloudflare Pages部署，修正版本号 @1】 ======================
+      # ====================== ✅【Cloudflare Pages部署 wrangler-action@v4 官方新版】 ======================
       - name: Deploy to Cloudflare Pages
-        uses: cloudflare/pages-action@1
+        uses: cloudflare/wrangler-action@v4
         continue-on-error: true
         with:
           apiToken: ${{ secrets.CF_API_TOKEN }}
           accountId: ${{ secrets.CF_ACCOUNT_ID }}
-          projectName: iptv
-          directory: .
+          command: pages deploy . --project-name=iptv
 
       # ==========【加密模块：加密成功删除明文zubo.txt】【放到Pages部署之后！！】==========
       - name: 加密zubo.txt生成zubo.enc
