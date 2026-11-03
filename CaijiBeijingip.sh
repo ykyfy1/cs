@@ -369,13 +369,6 @@ log_print "${city} 测速完成，文件输出至 txt/${city}.txt，仅保留 >=
 
 cleanup 0
 
-# 输出txt文件
-sed 's|第[0-9]*\/[0-9]*个: ||g' tmp_all.txt | grep -v '///' > "txt/${city}.txt"
-rm -f tmp_all.txt $speed_log $result_ip
-log_print "${city} 测速完成，文件输出至 txt/${city}.txt，仅保留 >=${MIN_SPEED_KB}k 有效IP，B单位全部过滤"
-
-cleanup 0
-
 # 加密明文zubo.txt，输出 zubo.enc，和网页解密算法匹配
 if [ -f "zubo.txt" ]; then
     log_print "检测到zubo.txt，开始加密生成 zubo.enc"
