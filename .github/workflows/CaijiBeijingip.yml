@@ -4,6 +4,7 @@ permissions:
 on:
   #schedule:
     #- cron: "01 20 * * *"
+  workflow_dispatch:
 jobs:
   run-script:
     runs-on: ubuntu-latest
@@ -144,19 +145,19 @@ jobs:
         env:
           ZUBO_PASSWORD: ${{ secrets.ZUBO_PASSWORD }}
 
-      # ====================== 【Cloudflare Pages自动部署】 ======================
-      - name: Deploy to Cloudflare Pages
-        uses: cloudflare/wrangler-action@v3
-        continue-on-error: true
-        with:
-          apiToken: ${{ secrets.CF_API_TOKEN }}
-          accountId: ${{ secrets.CF_ACCOUNT_ID }}
-          command: |
-            pwd
-            ls -la
-            echo "====检查文件===="
-            ls -la zubo.m3u index.html || echo "❌ 文件缺失"
-            wrangler pages deploy . --project-name=iptv
+      # ====================== 【Cloudflare Pages自动部署，暂时注释】 ======================
+#      - name: Deploy to Cloudflare Pages
+#        uses: cloudflare/wrangler-action@v3
+#        continue-on-error: true
+#        with:
+#          apiToken: ${{ secrets.CF_API_TOKEN }}
+#          accountId: ${{ secrets.CF_ACCOUNT_ID }}
+#          command: |
+#            pwd
+#            ls -la
+#            echo "====检查文件===="
+#            ls -la zubo.m3u index.html || echo "❌ 文件缺失"
+#            wrangler pages deploy . --project-name=iptv
 
       # 文件校验恢复完成之后，再执行git add
       - name: 更新源（文件变更才提交，无变化直接跳过）
