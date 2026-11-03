@@ -7,5 +7,14 @@
     "max_client": "",
     "current_conn": "",
     "geo": "上海市 上海 | China Telecom (Group)"
+  },
+  {
+    "ip_port": "218.1.217.195:14022",
+    "ip": "218.1.217.195",
+    "port": "14022",
+    "version": "v. 1.0 Build 25",
+    "max_client": "",
+    "current_conn": "",
+    "geo": "上海市 上海 | China Telecom (Group)"
   }
 ]

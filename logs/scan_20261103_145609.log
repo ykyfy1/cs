@@ -1,0 +1,18 @@
+======== 开始检索 Guangzhou_dianxin ========
+从 'ip/good_Guangzhou_dianxin_ip.txt' 读取Python预扫描存活IP，直接测速
+❌ 错误：存活IP文件 ip/good_Guangzhou_dianxin_ip.txt 不存在，跳过该城市
+✅ 当前城市临时文件清理完毕，准备进入下一个城市
+❌ 警告！ip/good_Guangzhou_dianxin_ip.txt 是旧文件（1793717769秒前生成），Python扫描未成功刷新，为避免测速旧IP，直接跳过该城市！
+✅ 当前城市临时文件清理完毕，准备进入下一个城市
+获取待测速IP总数：0
+===== 待测速IP列表 =====
+========================
+⚠️ IP列表为空，跳过当前城市
+✅ 当前城市临时文件清理完毕，准备进入下一个城市
+开始并发测速，并发数：10
+测速完成，开始按速度降序排序
+========= Guangzhou_dianxin 测速排序结果 =========
+========================================
+Guangzhou_dianxin 测速完成，文件输出至 txt/Guangzhou_dianxin.txt，仅保留 >=30k 有效IP，B单位全部过滤
+✅ 当前城市临时文件清理完毕，准备进入下一个城市
+检测到zubo.txt，开始加密生成 zubo.enc
