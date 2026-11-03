@@ -20,10 +20,10 @@ jobs:
         with:
           python-version: 3.11
 
-      - name: 安装系统依赖(bc,sed等)
+      - name: 安装系统依赖(bc,sed,zip等)
         run: |
           sudo apt-get update
-          sudo apt-get install -y sed bc openssl || true
+          sudo apt-get install -y sed bc openssl zip || true
           bc --version || true
 
       - name: 安装python依赖
@@ -138,22 +138,25 @@ jobs:
           accountId: ${{ secrets.CF_ACCOUNT_ID }}
           command: pages deploy . --project-name=iptv
 
-      # ==========【加密模块：加密成功删除明文zubo.txt】【放到Pages部署之后！！】==========
-      - name: 加密zubo.txt生成zubo.enc
+      # ==========【修改：打包整个txt文件夹加密生成zubo.enc，部署之后执行】==========
+      - name: 打包整个txt目录并加密生成zubo.enc
         run: |
           log_print() { echo "[$(date +'%Y-%m-%d %H:%M:%S')] $1"; }
-          if [ -f "zubo.txt" ] && [ -s "zubo.txt" ]; then
-            log_print "检测到zubo.txt，开始加密生成 zubo.enc"
-            openssl enc -aes-256-cbc -salt -in zubo.txt -out zubo.enc -k "$ZUBO_PASSWORD"
-            # 判断加密命令是否执行成功
-            if [ $? -eq 0 ] && [ -f "zubo.enc" ] && [ -s "zubo.enc" ]; then
-              log_print "✅ 加密成功，删除明文 zubo.txt"
-              rm -f zubo.txt
-            else
-              log_print "❌ 加密失败，保留明文zubo.txt用于排查问题"
-            fi
+          cd $GITHUB_WORKSPACE
+          # 打包整个txt文件夹
+          zip -r txt_backup.zip txt/
+          if [ ! -f txt_backup.zip ]; then
+            log_print "❌ txt目录打包失败，跳过加密"
+            exit 0
+          fi
+          # aes256加密压缩包输出zubo.enc
+          openssl enc -aes-256-cbc -salt -in txt_backup.zip -out zubo.enc -k "$ZUBO_PASSWORD"
+          if [ $? -eq 0 ] && [ -f zubo.enc ] && [ -s zubo.enc ]; then
+            log_print "✅ 成功打包并加密整个txt文件夹，生成 zubo.enc"
+            rm -f txt_backup.zip
           else
-            log_print "zubo.txt 文件为空或不存在，跳过加密，不生成zubo.enc"
+            log_print "❌ 加密失败"
+            rm -f txt_backup.zip
           fi
         env:
           ZUBO_PASSWORD: ${{ secrets.ZUBO_PASSWORD }}
