@@ -126,8 +126,26 @@ jobs:
           # 兜底页面，保证部署目录有静态文件
           echo "<pre>IPTV源：<a href='./zubo.m3u'>zubo.m3u</a></pre>" > index.html
           echo "✅ 生成index.html兜底页面"
+        env:
+          ZUBO_PASSWORD: ${{ secrets.ZUBO_PASSWORD }}
 
-          # ==========【加密模块：加密成功删除明文zubo.txt】==========
+      # ====================== ✅【Cloudflare Pages部署 移到加密前面！！】 ======================
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        continue-on-error: true
+        with:
+          apiToken: ${{ secrets.CF_API_TOKEN }}
+          accountId: ${{ secrets.CF_ACCOUNT_ID }}
+          command: |
+            pwd
+            ls -la
+            echo "====检查待上传文件===="
+            ls -la zubo.m3u index.html || echo "❌ 文件缺失"
+            wrangler pages deploy . --project-name=iptv
+
+      # ==========【加密模块：加密成功删除明文zubo.txt】【放到Pages部署之后！！】==========
+      - name: 加密zubo.txt生成zubo.enc
+        run: |
           log_print() { echo "[$(date +'%Y-%m-%d %H:%M:%S')] $1"; }
           if [ -f "zubo.txt" ] && [ -s "zubo.txt" ]; then
             log_print "检测到zubo.txt，开始加密生成 zubo.enc"
@@ -144,20 +162,6 @@ jobs:
           fi
         env:
           ZUBO_PASSWORD: ${{ secrets.ZUBO_PASSWORD }}
-
-      # ====================== 【Cloudflare Pages自动部署，暂时注释】 ======================
-#      - name: Deploy to Cloudflare Pages
-#        uses: cloudflare/wrangler-action@v3
-#        continue-on-error: true
-#        with:
-#          apiToken: ${{ secrets.CF_API_TOKEN }}
-#          accountId: ${{ secrets.CF_ACCOUNT_ID }}
-#          command: |
-#            pwd
-#            ls -la
-#            echo "====检查文件===="
-#            ls -la zubo.m3u index.html || echo "❌ 文件缺失"
-#            wrangler pages deploy . --project-name=iptv
 
       # 文件校验恢复完成之后，再执行git add
       - name: 更新源（文件变更才提交，无变化直接跳过）
