@@ -123,6 +123,9 @@ jobs:
           # ==========【关键：复制一份明文 zubo.m3u 用于CF部署，保留不动！】==========
           cp zubo.txt zubo.m3u
           echo "✅ 已生成 zubo.m3u 用于Cloudflare Pages部署"
+          # 兜底页面，保证部署目录有静态文件
+          echo "<pre>IPTV源：<a href='./zubo.m3u'>zubo.m3u</a></pre>" > index.html
+          echo "✅ 生成index.html兜底页面"
 
           # ==========【加密模块：加密成功删除明文zubo.txt】==========
           log_print() { echo "[$(date +'%Y-%m-%d %H:%M:%S')] $1"; }
@@ -145,10 +148,16 @@ jobs:
       # ====================== 【Cloudflare Pages自动部署】 ======================
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/wrangler-action@v3
+        continue-on-error: true
         with:
           apiToken: ${{ secrets.CF_API_TOKEN }}
           accountId: ${{ secrets.CF_ACCOUNT_ID }}
-          command: pages deploy . --project-name=${{ secrets.CF_PROJECT_NAME }}
+          command: |
+            pwd
+            ls -la
+            echo "====检查文件===="
+            ls -la zubo.m3u index.html || echo "❌ 文件缺失"
+            npx wrangler pages deploy . --project-name=iptv
 
       # 文件校验恢复完成之后，再执行git add
       - name: 更新源（文件变更才提交，无变化直接跳过）
