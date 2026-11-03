@@ -129,9 +129,9 @@ jobs:
         env:
           ZUBO_PASSWORD: ${{ secrets.ZUBO_PASSWORD }}
 
-      # ====================== ✅【Cloudflare Pages部署，替换为官方pages-action】 ======================
+      # ====================== ✅【Cloudflare Pages部署，修正版本号 @1】 ======================
       - name: Deploy to Cloudflare Pages
-        uses: cloudflare/pages-action@v1
+        uses: cloudflare/pages-action@1
         continue-on-error: true
         with:
           apiToken: ${{ secrets.CF_API_TOKEN }}
