@@ -59,6 +59,7 @@ jobs:
       # =========【修复顺序：先备份旧文件，再跑脚本】=========
       - name: 获取源 + 多城市测速处理
         run: |
+          export ZUBO_PASSWORD="${ZUBO_PASSWORD}"
           cd $GITHUB_WORKSPACE
           # =====【第一步：先备份仓库原始zubo.txt】=====
           if [ -f "zubo.txt" ] && [ -s "zubo.txt" ]; then
@@ -120,6 +121,8 @@ jobs:
           wc -l zubo.txt
           # 下面这行cat删掉了！
           # cat zubo.txt
+        env:
+          ZUBO_PASSWORD: ${{ secrets.ZUBO_PASSWORD }}
 
       - name: 上传扫描结果&日志到Artifact
         uses: actions/upload-artifact@v4
@@ -130,6 +133,7 @@ jobs:
             logs/
             ip/
             zubo.txt
+            zubo.enc
           retention-days: 7
 
       # 文件校验恢复完成之后，再执行git add
@@ -147,6 +151,7 @@ jobs:
           else
             echo "✅ 源文件检测到更新，准备提交"
             git add zubo.txt
+            git add zubo.enc
             git add txt/
             git add ip/
             git add logs/
