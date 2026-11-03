@@ -1,0 +1,48 @@
+======== 开始检索 Beijing_dianxin ========
+从 'ip/good_Beijing_dianxin_ip.txt' 读取Python预扫描存活IP，直接测速
+❌ 错误：存活IP文件 ip/good_Beijing_dianxin_ip.txt 不存在，跳过该城市
+✅ 当前城市临时文件清理完毕，准备进入下一个城市
+❌ 警告！ip/good_Beijing_dianxin_ip.txt 是旧文件（1793716307秒前生成），Python扫描未成功刷新，为避免测速旧IP，直接跳过该城市！
+✅ 当前城市临时文件清理完毕，准备进入下一个城市
+获取待测速IP总数：0
+===== 待测速IP列表 =====
+========================
+⚠️ IP列表为空，跳过当前城市
+✅ 当前城市临时文件清理完毕，准备进入下一个城市
+开始并发测速，并发数：10
+测速完成，开始按速度降序排序
+========= Beijing_dianxin 测速排序结果 =========
+========================================
+Beijing_dianxin 测速完成，文件输出至 txt/Beijing_dianxin.txt，仅保留 >=30k 有效IP，B单位全部过滤
+✅ 当前城市临时文件清理完毕，准备进入下一个城市
+检测到zubo.txt，开始加密生成 zubo.enc
+======== 开始检索 Shanghai_dianxin ========
+从 'ip/good_Shanghai_dianxin_ip.txt' 读取Python预扫描存活IP，直接测速
+获取待测速IP总数：2
+===== 待测速IP列表 =====
+116.233.92.194:4022
+218.1.217.195:14022
+========================
+开始并发测速，并发数：10
+测速完成，开始按速度降序排序
+========= Shanghai_dianxin 测速排序结果 =========
+753.65k 116.233.92.194:4022
+549.63k 218.1.217.195:14022
+========================================
+Shanghai_dianxin 测速完成，文件输出至 txt/Shanghai_dianxin.txt，仅保留 >=30k 有效IP，B单位全部过滤
+✅ 当前城市临时文件清理完毕，准备进入下一个城市
+检测到zubo.txt，开始加密生成 zubo.enc
+==================== 所有城市测速全部完成，开始全局合并排序 ====================
+==== 正在处理城市：Beijing_dianxin ====
+测速文件：ip/tmp_speed_Beijing_dianxin.txt  模板文件：template/template_Beijing_dianxin.txt
+⚠️ 跳过【Beijing_dianxin】，测速文件/模板缺失或者测速结果为空
+==== 正在处理城市：Shanghai_dianxin ====
+测速文件：ip/tmp_speed_Shanghai_dianxin.txt  模板文件：template/template_Shanghai_dianxin.txt
+==== 正在处理城市：Guangzhou_dianxin ====
+测速文件：ip/tmp_speed_Guangzhou_dianxin.txt  模板文件：template/template_Guangzhou_dianxin.txt
+⚠️ 跳过【Guangzhou_dianxin】，测速文件/模板缺失或者测速结果为空
+✅ 全部城市频道合并完成，开始全局速度排序，保留前100条
+✅ 全局合并完成，zubo.txt 使用#EXTINF模板格式，保留前100条
+==================== 全局合并完成 ====================
+zubo.txt 文件为空或不存在，跳过加密，不生成zubo.enc
+📝 本次扫描日志保存至：logs/scan_20261103_143147.log
