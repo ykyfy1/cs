@@ -56,87 +56,19 @@ jobs:
           find txt -type f -name "*.txt" -mtime +7 -delete
           echo "✅ 已删除txt目录下7天前的txt结果文件"
 
-      # =========【修复顺序：先备份旧文件，再跑脚本】=========
-      - name: 获取源 + 多城市测速处理
+      - name: 运行采集+测速脚本（全部合并、加密、明文备份交给sh处理）
         run: |
           export ZUBO_PASSWORD="${ZUBO_PASSWORD}"
           cd $GITHUB_WORKSPACE
-          # =====【第一步：先备份仓库原始zubo.txt】=====
-          if [ -f "zubo.txt" ] && [ -s "zubo.txt" ]; then
-            cp zubo.txt zubo_bf.txt
-            echo "✅ 已备份运行前zubo.txt为zubo_bf.txt"
-          else
-            echo "ℹ️ 仓库无有效旧zubo.txt，新建空备份"
-            rm -f zubo_bf.txt
-            touch zubo_bf.txt
-          fi
           
-          # =====【第二步：运行采集、测速脚本】=====
+          # 运行Python扫描
           python ./CaijiBeijingip.py
+          # 执行sh批量模式 0，sh内部完成全部城市合并、生成zubo.txt、备份zubo_plain_backup.txt、加密、删除zubo.txt
           bash ./CaijiBeijingip.sh 0
 
-          # =========【原样拼接城市原文，无额外标题】=========
-          echo "===按定义顺序拼接城市文件到zubo.txt==="
-          > zubo.txt
-          # 在这里自定义城市顺序，新增城市直接追加一行
-          city_list=(
-            "txt/Beijing_dianxin.txt"
-            "txt/Shanghai_dianxin.txt"
-            #"txt/Guangzhou_dianxin.txt"
-          )
-
-          for f in "${city_list[@]}"; do
-            if [ -f "$f" ] && [ -s "$f" ]; then
-              cat "$f" >> zubo.txt
-              echo "✅ 已拼接文件：$f"
-            else
-              echo "⏭️ 跳过空/不存在文件：$f"
-            fi
-          done
-
-          #兜底，防止0字节空文件
-          if [ ! -s zubo.txt ]; then
-            echo "# 暂无测速IP数据" > zubo.txt
-          fi
-          # ==================================================
-
-          NEW_ZUBO="./zubo.txt"
-          
-          # =====【第三步：校验新文件，空就回滚】=====
-          if [ -f "$NEW_ZUBO" ] && [ -s "$NEW_ZUBO" ]; then
-            echo "✅ 全局合并完成，zubo.txt生成成功"
-          else
-            echo "⚠️ 警告：新zubo.txt不存在或者是空！尝试恢复旧备份文件"
-            if [ -f "zubo_bf.txt" ] && [ -s "zubo_bf.txt" ]; then
-              cp zubo_bf.txt zubo.txt
-              echo "✅ 已恢复备份文件"
-            else
-              echo "ℹ️ 无有效旧备份，跳过恢复"
-            fi
-          fi
-          
-          # 调试输出：只打印行数，去掉cat zubo.txt，不再输出全部频道内容
           echo "====调试输出===="
           wc -l txt/*.txt
-          wc -l zubo.txt
-          # 下面这行cat删掉了！
-          # cat zubo.txt
-
-          # ==========【新增加密模块：加密成功删除明文zubo.txt】==========
-          log_print() { echo "[$(date +'%Y-%m-%d %H:%M:%S')] $1"; }
-          if [ -f "zubo.txt" ] && [ -s "zubo.txt" ]; then
-            log_print "检测到zubo.txt，开始加密生成 zubo.enc"
-            openssl enc -aes-256-cbc -salt -in zubo.txt -out zubo.enc -k "$ZUBO_PASSWORD"
-            # 判断加密命令是否执行成功
-            if [ $? -eq 0 ] && [ -f "zubo.enc" ] && [ -s "zubo.enc" ]; then
-              log_print "✅ 加密成功，删除明文 zubo.txt"
-              rm -f zubo.txt
-            else
-              log_print "❌ 加密失败，保留明文zubo.txt用于排查问题"
-            fi
-          else
-            log_print "zubo.txt 文件为空或不存在，跳过加密，不生成zubo.enc"
-          fi
+          ls -la zubo*
         env:
           ZUBO_PASSWORD: ${{ secrets.ZUBO_PASSWORD }}
 
@@ -148,7 +80,7 @@ jobs:
             txt/
             logs/
             ip/
-            zubo.txt
+            zubo_plain_backup.txt
             zubo.enc
           retention-days: 7
 
@@ -160,13 +92,8 @@ jobs:
           git config --local user.name "GitHub Action"
           
           git reset HEAD .
-          
-          # 对比【加密前的备份】zubo_bf.txt
-          if diff -q zubo_bf.txt zubo_bf.txt >/dev/null ; then
-            echo "ℹ️ 对比备份文件逻辑"
-          fi
 
-          # 判断仓库变更，只提交zubo.enc，不再提交zubo.txt明文
+          # 判断仓库变更，只提交zubo.enc，明文不会提交仓库
           if [[ -n $(git status --porcelain zubo.enc txt/ ip/ logs/) ]]; then
             echo "✅ 源文件检测到更新，准备提交"
             git add zubo.enc
