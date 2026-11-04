@@ -1,102 +1,10 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>🔐 需要密码查看 zubo.txt</title>
-<style>
-*{box-sizing:border-box;}
-body{font-size:18px;padding:16px;margin:0;}
-#result{white-space:pre-wrap;margin-top:20px;font-size:14px;word-break:break-all;}
-#loading{color:#2266dd;display:none;}
-input[type="password"], select{
-  width:100%;
-  font-size:18px;
-  padding:10px;
-  margin-bottom:10px;
-}
-button{
-  width:100%;
-  font-size:18px;
-  padding:10px;
-}
-</style>
+    <meta charset="UTF-8">
+    <title>My GitHub Pages Homepage</title>
 </head>
 <body>
-<h2>🔐 需要密码查看 zubo.txt</h2>
-<div id="loading">⏳ 正在处理加密文件，请稍候...</div>
-
-<!-- 模式选择下拉框 -->
-<select id="modeSelect">
-  <option value="remote">🔗 远程加载（仓库zubo.enc，GA更新无需改html）</option>
-  <option value="embed">📦 内置加密文件（无需网络拉取，国内手机访问稳定）</option>
-</select>
-
-<input type="password" id="passwd" placeholder="输入解密密码">
-<button onclick="loadAndDecrypt()">确认解密查看</button>
-<pre id="result"></pre>
-
-<script>
-// ===================== 配置区 =====================
-// 远程模式：zubo.enc raw链接
-const ENC_RAW_URL = "https://yang.zjykyfy.dpdns.org/https://raw.githubusercontent.com/ykyfy1/cs/refs/heads/main/zubo.enc";
-
-// 内置模式：这里放zubo.enc转base64字符串，后续替换成你的文件base64
-let embedEncBase64 = ""; 
-// =================================================
-
-async function loadAndDecrypt() {
-  const pass = document.getElementById('passwd').value;
-  const mode = document.getElementById('modeSelect').value;
-  if(!pass) return alert("请输入解密密码！");
-
-  const loadingDom = document.getElementById("loading");
-  const resultDom = document.getElementById("result");
-  loadingDom.style.display = "block";
-  resultDom.innerText = "";
-  let data;
-
-  try{
-    if(mode === "remote"){
-      // 远程读取
-      const res = await fetch(ENC_RAW_URL);
-      if(!res.ok) throw new Error(`加载失败，HTTP ${res.status}`);
-      const buf = await res.arrayBuffer();
-      data = new Uint8Array(buf);
-    }else{
-      // 内置模式：base64转二进制
-      if(!embedEncBase64) throw new Error("尚未填入内置zubo.enc的base64内容！");
-      const binary = atob(embedEncBase64);
-      data = Uint8Array.from([...binary].map(c => c.charCodeAt(0)));
-    }
-    loadingDom.style.display = "none";
-
-    const header = new TextDecoder().decode(data.slice(0,8));
-    if(header !== "Salted__") return alert("❌ 文件不是OpenSSL AES加密格式！");
-    const salt = data.slice(8,16);
-    const ciphertext = data.slice(16);
-
-    // OpenSSL EVP_BytesToKey 密钥推导，和GA脚本完全兼容
-    const enc = new TextEncoder();
-    let keyIv = new Uint8Array();
-    let last = new Uint8Array();
-    while(keyIv.length < 48){
-      const combined = new Uint8Array([...last, ...enc.encode(pass), ...salt]);
-      last = new Uint8Array(await crypto.subtle.digest("SHA-1", combined));
-      keyIv = new Uint8Array([...keyIv, ...last]);
-    }
-    const key = keyIv.slice(0,32);
-    const iv = keyIv.slice(32,48);
-    const aesKey = await crypto.subtle.importKey("raw", key, {name:"AES-CBC"}, false, ["decrypt"]);
-    const plain = await crypto.subtle.decrypt({name:"AES-CBC", iv}, aesKey, ciphertext);
-    const txt = new TextDecoder().decode(plain);
-    resultDom.innerText = txt;
-  }catch(e){
-    loadingDom.style.display = "none";
-    alert("❌错误："+e.message);
-    console.error(e);
-  }
-}
-</script>
+    <h1>Welcome</h1>
 </body>
 </html>
