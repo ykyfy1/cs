@@ -1,4 +1,4 @@
-name: CaijiChongqingip
+name: CaijiBeijingip
 permissions:
   contents: write
 on:
@@ -99,12 +99,12 @@ jobs:
 
           # 生成CF部署用的m3u和index.html
           cp zubo.txt zubo.m3u
-          echo "<pre>IPTV源：<a href='./zubo.m3u'>zubo.m3u</a> | 加密文件：<a href='./zubo.enc'>zubo.enc</a></pre>" > index.html
+          echo "<pre>IPTV源：<a href='./zubo.m3u'>zubo.m3u</a></pre>" > index.html
           echo "✅ 生成zubo.m3u 和 index.html"
         env:
           ZUBO_PASSWORD: ${{ secrets.ZUBO_PASSWORD }}
 
-      # 加密zubo.txt生成zubo.enc，加密成功删除明文zubo.txt（在部署CF之前！）
+      # 加密zubo.txt，加密完成删除明文（移到CF部署前面）
       - name: 加密zubo.txt生成zubo.enc
         run: |
           log_print() { echo "[$(date +'%Y-%m-%d %H:%M:%S')] $1"; }
@@ -123,24 +123,14 @@ jobs:
         env:
           ZUBO_PASSWORD: ${{ secrets.ZUBO_PASSWORD }}
 
-      # ==========【修复版】单行生成_middleware.js，彻底避免YAML多行语法报错 ==========
-      - name: 生成CF鉴权文件 _middleware.js
-        run: |
-          echo "export default {async fetch(request, env){const authorization=request.headers.get('authorization');if(!authorization){return new Response('需要登录',{status:401,headers:{'WWW-Authenticate':'Basic realm=\"Login Required\"'}});}const[,base64]=authorization.split(' ');const decoded=atob(base64).split(':');const user=decoded[0];const pass=decoded[1];if(user==='${CF_PAGE_USER}'&&pass==='${CF_PAGE_PASS}'){const res=await env.ASSETS.fetch(request);const newHeaders=new Headers(res.headers);newHeaders.set('Cache-Control','no-store, no-cache, must-revalidate');return new Response(res.body,{headers:newHeaders,status:res.status});}return new Response('账号密码错误',{status:401});}}" > _middleware.js
-          echo "✅ _middleware.js 生成完成"
-          ls -la _middleware.js
-        env:
-          CF_PAGE_USER: ${{ secrets.CF_PAGE_USER }}
-          CF_PAGE_PASS: ${{ secrets.CF_PAGE_PASS }}
-
-      # 部署到Cloudflare Pages，此时目录包含 zubo.m3u、zubo.enc、index.html、_middleware.js
+      # 部署到Cloudflare Pages（现在目录包含 zubo.m3u + zubo.enc，两个上传CF）
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/wrangler-action@v4
         continue-on-error: true
         with:
           apiToken: ${{ secrets.CF_API_TOKEN }}
           accountId: ${{ secrets.CF_ACCOUNT_ID }}
-          command: pages deploy . --project-name=iptv
+          command: pages deploy . --project-name=iptv1
 
       # 打包加密整个txt目录，加密后删除txt文件夹
       - name: 打包加密txt目录全部城市文件
