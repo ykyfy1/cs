@@ -122,7 +122,7 @@ if [ "$city_choice" -eq 0 ];then
 
     # 城市列表，和上面case里的城市一一对应
     city_arr=(
-        "Chongqing_liantong"
+        "Beijing_dianxin"
         "Shanghai_dianxin"
         "Guangzhou_dianxin"
     )
@@ -377,39 +377,3 @@ rm -f tmp_all.txt $speed_log $result_ip
 log_print "${city} 测速完成，文件输出至 txt/${city}.txt，仅保留 >=${MIN_SPEED_KB}k 有效IP，B单位全部过滤"
 
 cleanup 0
-
-# ============【部署相关：根目录生成functions中间件 + dist静态目录】============
-# 在仓库根目录创建functions（CF Pages Function必须放在根目录！！）
-mkdir -p functions
-cat > functions/_middleware.js <<'EOF'
-export async function onRequest({ request, env, next }) {
-  const username = env.BASIC_AUTH_USERNAME;
-  const password = env.BASIC_AUTH_PASSWORD;
-
-  if (!username || !password) return next();
-
-  const authHeader = request.headers.get("authorization");
-  if (!authHeader) {
-    return new Response("需要输入访问密码", {
-      status: 401,
-      headers: { "WWW-Authenticate": 'Basic realm="IPTV"' },
-    });
-  }
-
-  const [, base64] = authHeader.split(" ");
-  const [user, pass] = atob(base64).split(":");
-  if (user !== username || pass !== password) {
-    return new Response("账号密码错误", { status: 401 });
-  }
-  return next();
-}
-EOF
-
-# 创建dist文件夹，存放静态文件
-mkdir -p dist
-# 复制加密文件到dist
-cp zubo.enc dist/
-# 将zubo.txt复制重命名为zubo.m3u放到dist，供播放器读取
-cp zubo.txt dist/zubo.m3u
-# 如需保留明文zubo.txt到CF，取消下面这行注释
-# cp zubo.txt dist/
