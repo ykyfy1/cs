@@ -123,44 +123,17 @@ jobs:
         env:
           ZUBO_PASSWORD: ${{ secrets.ZUBO_PASSWORD }}
 
-      # ==========动态生成_middleware.js 网页密码鉴权==========
-      - name: 动态生成CF鉴权文件 _middleware.js
+      # ==========【修复版】单行生成_middleware.js，彻底避免YAML多行语法报错 ==========
+      - name: 生成CF鉴权文件 _middleware.js
         run: |
-          cat > _middleware.js <<'EOF'
-export default {
-  async fetch(request, env) {
-    const authorization = request.headers.get("authorization");
-    if (!authorization) {
-      return new Response("需要登录", {
-        status: 401,
-        headers: {
-          "WWW-Authenticate": 'Basic realm="Login Required"'
-        }
-      });
-    }
-    const [, base64] = authorization.split(" ");
-    const decoded = atob(base64).split(":");
-    const user = decoded[0];
-    const pass = decoded[1];
-    if (user === AUTH_USER && pass === AUTH_PASS) {
-      const res = await env.ASSETS.fetch(request);
-      const newHeaders = new Headers(res.headers);
-      newHeaders.set("Cache-Control", "no-store, no-cache, must-revalidate");
-      return new Response(res.body, { headers: newHeaders, status: res.status });
-    }
-    return new Response("账号密码错误", { status: 401 });
-  }
-}
-EOF
-          sed -i "s|AUTH_USER|${CF_PAGE_USER}|g" _middleware.js
-          sed -i "s|AUTH_PASS|${CF_PAGE_PASS}|g" _middleware.js
-          echo "✅ _middleware.js 临时生成完成"
+          echo "export default {async fetch(request, env){const authorization=request.headers.get('authorization');if(!authorization){return new Response('需要登录',{status:401,headers:{'WWW-Authenticate':'Basic realm=\"Login Required\"'}});}const[,base64]=authorization.split(' ');const decoded=atob(base64).split(':');const user=decoded[0];const pass=decoded[1];if(user==='${CF_PAGE_USER}'&&pass==='${CF_PAGE_PASS}'){const res=await env.ASSETS.fetch(request);const newHeaders=new Headers(res.headers);newHeaders.set('Cache-Control','no-store, no-cache, must-revalidate');return new Response(res.body,{headers:newHeaders,status:res.status});}return new Response('账号密码错误',{status:401});}}" > _middleware.js
+          echo "✅ _middleware.js 生成完成"
           ls -la _middleware.js
         env:
           CF_PAGE_USER: ${{ secrets.CF_PAGE_USER }}
           CF_PAGE_PASS: ${{ secrets.CF_PAGE_PASS }}
 
-      # 【现在部署！此时目录里面：zubo.m3u、zubo.enc、index.html、_middleware.js 全部存在，一次性上传CF】
+      # 部署到Cloudflare Pages，此时目录包含 zubo.m3u、zubo.enc、index.html、_middleware.js
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/wrangler-action@v4
         continue-on-error: true
