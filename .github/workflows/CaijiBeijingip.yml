@@ -99,21 +99,12 @@ jobs:
 
           # 生成CF部署用的m3u和index.html
           cp zubo.txt zubo.m3u
-          echo "<pre>IPTV源：<a href='./zubo.m3u'>zubo.m3u</a></pre>" > index.html
+          echo "<pre>IPTV源：<a href='./zubo.m3u'>zubo.m3u</a> | 加密文件：<a href='./zubo.enc'>zubo.enc</a></pre>" > index.html
           echo "✅ 生成zubo.m3u 和 index.html"
         env:
           ZUBO_PASSWORD: ${{ secrets.ZUBO_PASSWORD }}
 
-      # 部署到Cloudflare Pages
-      - name: Deploy to Cloudflare Pages
-        uses: cloudflare/wrangler-action@v4
-        continue-on-error: true
-        with:
-          apiToken: ${{ secrets.CF_API_TOKEN }}
-          accountId: ${{ secrets.CF_ACCOUNT_ID }}
-          command: pages deploy . --project-name=iptv
-
-      # 加密zubo.txt，加密完成删除明文
+      # 加密zubo.txt生成zubo.enc，加密成功删除明文zubo.txt（在部署CF之前！）
       - name: 加密zubo.txt生成zubo.enc
         run: |
           log_print() { echo "[$(date +'%Y-%m-%d %H:%M:%S')] $1"; }
@@ -131,6 +122,52 @@ jobs:
           fi
         env:
           ZUBO_PASSWORD: ${{ secrets.ZUBO_PASSWORD }}
+
+      # ==========动态生成_middleware.js 网页密码鉴权==========
+      - name: 动态生成CF鉴权文件 _middleware.js
+        run: |
+          cat > _middleware.js <<'EOF'
+export default {
+  async fetch(request, env) {
+    const authorization = request.headers.get("authorization");
+    if (!authorization) {
+      return new Response("需要登录", {
+        status: 401,
+        headers: {
+          "WWW-Authenticate": 'Basic realm="Login Required"'
+        }
+      });
+    }
+    const [, base64] = authorization.split(" ");
+    const decoded = atob(base64).split(":");
+    const user = decoded[0];
+    const pass = decoded[1];
+    if (user === AUTH_USER && pass === AUTH_PASS) {
+      const res = await env.ASSETS.fetch(request);
+      const newHeaders = new Headers(res.headers);
+      newHeaders.set("Cache-Control", "no-store, no-cache, must-revalidate");
+      return new Response(res.body, { headers: newHeaders, status: res.status });
+    }
+    return new Response("账号密码错误", { status: 401 });
+  }
+}
+EOF
+          sed -i "s|AUTH_USER|${CF_PAGE_USER}|g" _middleware.js
+          sed -i "s|AUTH_PASS|${CF_PAGE_PASS}|g" _middleware.js
+          echo "✅ _middleware.js 临时生成完成"
+          ls -la _middleware.js
+        env:
+          CF_PAGE_USER: ${{ secrets.CF_PAGE_USER }}
+          CF_PAGE_PASS: ${{ secrets.CF_PAGE_PASS }}
+
+      # 【现在部署！此时目录里面：zubo.m3u、zubo.enc、index.html、_middleware.js 全部存在，一次性上传CF】
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v4
+        continue-on-error: true
+        with:
+          apiToken: ${{ secrets.CF_API_TOKEN }}
+          accountId: ${{ secrets.CF_ACCOUNT_ID }}
+          command: pages deploy . --project-name=iptv
 
       # 打包加密整个txt目录，加密后删除txt文件夹
       - name: 打包加密txt目录全部城市文件
