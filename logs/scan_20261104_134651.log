@@ -1,0 +1,31 @@
+======== 开始检索 Beijing_dianxin ========
+从 'ip/good_Beijing_dianxin_ip.txt' 读取Python预扫描存活IP，直接测速
+获取待测速IP总数：3
+===== 待测速IP列表 =====
+171.213.129.51:8188
+171.213.130.134:8188
+171.213.140.74:8188
+========================
+开始并发测速，并发数：10
+测速完成，开始按速度降序排序
+========= Beijing_dianxin 测速排序结果 =========
+125.71k 171.213.140.74:8188
+121.18k 171.213.130.134:8188
+========================================
+Beijing_dianxin 测速完成，文件输出至 txt/Beijing_dianxin.txt，仅保留 >=30k 有效IP，B单位全部过滤
+✅ 当前城市临时文件清理完毕，准备进入下一个城市
+==================== 所有城市测速全部完成，开始全局合并排序 ====================
+==== 正在处理城市：Chongqing_liantong ====
+测速文件：ip/tmp_speed_Chongqing_liantong.txt  模板文件：template/template_Chongqing_liantong.txt
+⚠️ 跳过【Chongqing_liantong】，测速文件/模板缺失或者测速结果为空
+==== 正在处理城市：Shanghai_dianxin ====
+测速文件：ip/tmp_speed_Shanghai_dianxin.txt  模板文件：template/template_Shanghai_dianxin.txt
+⚠️ 跳过【Shanghai_dianxin】，测速文件/模板缺失或者测速结果为空
+==== 正在处理城市：Guangzhou_dianxin ====
+测速文件：ip/tmp_speed_Guangzhou_dianxin.txt  模板文件：template/template_Guangzhou_dianxin.txt
+⚠️ 跳过【Guangzhou_dianxin】，测速文件/模板缺失或者测速结果为空
+✅ 全部城市频道合并完成，开始全局速度排序，保留前100条
+✅ 全局合并完成，zubo.txt 使用#EXTINF模板格式，保留前100条
+==================== 全局合并完成 ====================
+zubo.txt 文件为空或不存在，跳过加密，不生成zubo.enc
+📝 本次扫描日志保存至：logs/scan_20261104_134651.log
