@@ -49,7 +49,7 @@ jobs:
           find logs -type f -name "scan_*.log" -mtime +7 -delete
           echo "✅ 清理过期日志"
 
-      # 采集测速、拼接生成zubo.txt、zubo.m3u
+      # 采集测速、拼接生成zubo.txt
       - name: 获取源 + 多城市测速处理
         run: |
           export ZUBO_PASSWORD="${ZUBO_PASSWORD}"
@@ -97,23 +97,17 @@ jobs:
           wc -l txt/*.txt
           wc -l zubo.txt
 
-          # 生成CF部署用的m3u和index.html
-          cp zubo.txt zubo.m3u
-          echo "<pre>IPTV源：<a href='./zubo.m3u'>zubo.m3u</a></pre>" > index.html
+          # 【重点】生成CF部署用的m3u和index.html（在加密之前！）
+          # 把txt转成标准m3u，不要直接cp zubo.txt
+          echo "#EXTM3U" > zubo.m3u
+          awk -F',' '{print "#EXTINF:-1,"$2"\nhttp://"$1}' zubo.txt >> zubo.m3u
+          echo "<pre>IPTV源：<a href='./zubo.m3u'>zubo.m3u</a> | 加密合并包：<a href='./zubo.enc'>zubo.enc</a></pre>" > index.html
           echo "✅ 生成zubo.m3u 和 index.html"
         env:
           ZUBO_PASSWORD: ${{ secrets.ZUBO_PASSWORD }}
 
-      # 部署到Cloudflare Pages
-      - name: Deploy to Cloudflare Pages
-        uses: cloudflare/wrangler-action@v4
-        continue-on-error: true
-        with:
-          apiToken: ${{ secrets.CF_API_TOKEN }}
-          accountId: ${{ secrets.CF_ACCOUNT_ID }}
-          command: pages deploy . --project-name=iptv
-
-      # 加密zubo.txt，加密完成删除明文
+      # ========== 先加密！生成zubo.enc，保留zubo.m3u不加密 ==========
+      # 加密zubo.txt生成zubo.enc
       - name: 加密zubo.txt生成zubo.enc
         run: |
           log_print() { echo "[$(date +'%Y-%m-%d %H:%M:%S')] $1"; }
@@ -132,7 +126,7 @@ jobs:
         env:
           ZUBO_PASSWORD: ${{ secrets.ZUBO_PASSWORD }}
 
-      # 打包加密整个txt目录，加密后删除txt文件夹
+      # 打包加密txt目录全部城市文件
       - name: 打包加密txt目录全部城市文件
         run: |
           log_print() { echo "[$(date +'%Y-%m-%d %H:%M:%S')] $1"; }
@@ -152,6 +146,15 @@ jobs:
           fi
         env:
           ZUBO_PASSWORD: ${{ secrets.ZUBO_PASSWORD }}
+
+      # ========== 加密完成之后，再部署到CF Pages ==========
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v4
+        continue-on-error: true
+        with:
+          apiToken: ${{ secrets.CF_API_TOKEN }}
+          accountId: ${{ secrets.CF_ACCOUNT_ID }}
+          command: pages deploy . --project-name=iptv
 
       # Git提交更新后的加密文件
       - name: 提交更新加密文件
