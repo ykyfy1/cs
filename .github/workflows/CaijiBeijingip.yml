@@ -104,7 +104,16 @@ jobs:
         env:
           ZUBO_PASSWORD: ${{ secrets.ZUBO_PASSWORD }}
 
-      # 加密zubo.txt，加密完成删除明文（移到CF部署前面）
+      # 部署到Cloudflare Pages
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v4
+        continue-on-error: true
+        with:
+          apiToken: ${{ secrets.CF_API_TOKEN }}
+          accountId: ${{ secrets.CF_ACCOUNT_ID }}
+          command: pages deploy . --project-name=iptv
+
+      # 加密zubo.txt，加密完成删除明文
       - name: 加密zubo.txt生成zubo.enc
         run: |
           log_print() { echo "[$(date +'%Y-%m-%d %H:%M:%S')] $1"; }
@@ -122,15 +131,6 @@ jobs:
           fi
         env:
           ZUBO_PASSWORD: ${{ secrets.ZUBO_PASSWORD }}
-
-      # 部署到Cloudflare Pages（现在目录包含 zubo.m3u + zubo.enc，两个上传CF）
-      - name: Deploy to Cloudflare Pages
-        uses: cloudflare/wrangler-action@v4
-        continue-on-error: true
-        with:
-          apiToken: ${{ secrets.CF_API_TOKEN }}
-          accountId: ${{ secrets.CF_ACCOUNT_ID }}
-          command: pages deploy . --project-name=iptv
 
       # 打包加密整个txt目录，加密后删除txt文件夹
       - name: 打包加密txt目录全部城市文件
