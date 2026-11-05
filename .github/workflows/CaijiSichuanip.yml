@@ -161,4 +161,4 @@ jobs:
             fi
           else
             echo "ℹ️ 文件无更新，跳过git提交"
-          fi .
+          fi
