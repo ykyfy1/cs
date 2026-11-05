@@ -9,15 +9,6 @@
     "geo": "四川 成都 | Chinanet"
   },
   {
-    "ip_port": "171.213.130.134:8188",
-    "ip": "171.213.130.134",
-    "port": "8188",
-    "version": "v. 1.0 Build 25",
-    "max_client": "",
-    "current_conn": "",
-    "geo": "四川 成都 | Chinanet"
-  },
-  {
     "ip_port": "171.213.140.204:8188",
     "ip": "171.213.140.204",
     "port": "8188",
@@ -40,6 +31,15 @@
     "ip": "171.213.158.248",
     "port": "8188",
     "version": "v. 1.0 Build 25",
+    "max_client": "",
+    "current_conn": "",
+    "geo": "四川 成都 | Chinanet"
+  },
+  {
+    "ip_port": "171.213.162.234:8188",
+    "ip": "171.213.162.234",
+    "port": "8188",
+    "version": "",
     "max_client": "",
     "current_conn": "",
     "geo": "四川 成都 | Chinanet"
@@ -117,26 +117,8 @@
     "geo": "四川 成都 | Chinanet"
   },
   {
-    "ip_port": "171.213.195.187:8188",
-    "ip": "171.213.195.187",
-    "port": "8188",
-    "version": "v. 1.0 Build 25",
-    "max_client": "",
-    "current_conn": "",
-    "geo": "四川 成都 | Chinanet"
-  },
-  {
     "ip_port": "171.213.196.88:8188",
     "ip": "171.213.196.88",
-    "port": "8188",
-    "version": "v. 1.0 Build 25",
-    "max_client": "",
-    "current_conn": "",
-    "geo": "四川 成都 | Chinanet"
-  },
-  {
-    "ip_port": "171.213.205.79:8188",
-    "ip": "171.213.205.79",
     "port": "8188",
     "version": "v. 1.0 Build 25",
     "max_client": "",
@@ -201,7 +183,7 @@
     "ip_port": "171.213.224.130:8188",
     "ip": "171.213.224.130",
     "port": "8188",
-    "version": "",
+    "version": "v. 1.0 Build 25",
     "max_client": "",
     "current_conn": "",
     "geo": "四川 成都 | Chinanet"
