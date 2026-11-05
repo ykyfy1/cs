@@ -1,32 +1,5 @@
 [
   {
-    "ip_port": "171.213.128.3:8188",
-    "ip": "171.213.128.3",
-    "port": "8188",
-    "version": "",
-    "max_client": "",
-    "current_conn": "",
-    "geo": "四川 成都 | Chinanet"
-  },
-  {
-    "ip_port": "171.213.129.51:8188",
-    "ip": "171.213.129.51",
-    "port": "8188",
-    "version": "",
-    "max_client": "",
-    "current_conn": "",
-    "geo": "四川 成都 | Chinanet"
-  },
-  {
-    "ip_port": "171.213.130.134:8188",
-    "ip": "171.213.130.134",
-    "port": "8188",
-    "version": "v. 1.0 Build 25",
-    "max_client": "",
-    "current_conn": "",
-    "geo": "四川 成都 | Chinanet"
-  },
-  {
     "ip_port": "171.213.140.204:8188",
     "ip": "171.213.140.204",
     "port": "8188",
@@ -90,15 +63,6 @@
     "geo": "四川 成都 | Chinanet"
   },
   {
-    "ip_port": "171.213.171.192:8188",
-    "ip": "171.213.171.192",
-    "port": "8188",
-    "version": "",
-    "max_client": "",
-    "current_conn": "",
-    "geo": "四川 成都 | Chinanet"
-  },
-  {
     "ip_port": "171.213.173.68:8188",
     "ip": "171.213.173.68",
     "port": "8188",
@@ -147,7 +111,7 @@
     "ip_port": "171.213.196.131:8188",
     "ip": "171.213.196.131",
     "port": "8188",
-    "version": "v. 1.0 Build 25",
+    "version": "",
     "max_client": "",
     "current_conn": "",
     "geo": "四川 成都 | Chinanet"
@@ -156,7 +120,7 @@
     "ip_port": "171.213.205.79:8188",
     "ip": "171.213.205.79",
     "port": "8188",
-    "version": "v. 1.0 Build 25",
+    "version": "",
     "max_client": "",
     "current_conn": "",
     "geo": "四川 成都 | Chinanet"
@@ -234,15 +198,6 @@
     "geo": "四川 成都 | Chinanet"
   },
   {
-    "ip_port": "171.213.230.42:8188",
-    "ip": "171.213.230.42",
-    "port": "8188",
-    "version": "",
-    "max_client": "",
-    "current_conn": "",
-    "geo": "四川 成都 | Chinanet"
-  },
-  {
     "ip_port": "171.213.230.243:8188",
     "ip": "171.213.230.243",
     "port": "8188",
@@ -264,7 +219,7 @@
     "ip_port": "171.213.234.223:8188",
     "ip": "171.213.234.223",
     "port": "8188",
-    "version": "",
+    "version": "v. 1.0 Build 25",
     "max_client": "",
     "current_conn": "",
     "geo": "四川 成都 | Chinanet"
