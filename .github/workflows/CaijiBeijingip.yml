@@ -36,75 +36,100 @@ jobs:
         run: |
           mkdir -p txt logs ip template
 
-      # 清理ip目录历史旧文件
-      - name: 清理ip目录历史旧文件
+      # ==========【新增：扫描前清空ip目录旧good_*文件，防止残留干扰测速】==========
+      - name: 清理ip目录历史good_*旧文件
         run: |
           rm -f ip/good_*.txt
           rm -f ip/组播_*.txt
-          echo "✅ 已清理 ip/ 目录旧文件"
+          echo "✅ 已清理 ip/ 目录下旧的 good_*.txt 与 组播_*.txt"
+      # =====================================================================
 
-      # 清理旧日志
+      # 清理7天前旧日志
       - name: 清理7天前旧日志
         run: |
           find logs -type f -name "scan_*.log" -mtime +7 -delete
-          echo "✅ 清理过期日志"
+          echo "✅ 已删除logs目录下7天前的日志文件"
 
-      # 采集测速、拼接生成zubo.txt、zubo.m3u
+      # 清理txt目录过期结果文件
+      - name: 清理txt目录过期结果文件
+        run: |
+          find txt -type f -name "*.txt" -mtime +7 -delete
+          echo "✅ 已删除txt目录下7天前的txt结果文件"
+
+      # =========【修复顺序：先备份旧文件，再跑脚本】=========
       - name: 获取源 + 多城市测速处理
         run: |
           export ZUBO_PASSWORD="${ZUBO_PASSWORD}"
           cd $GITHUB_WORKSPACE
-          # 备份旧zubo.txt
+          # =====【第一步：先备份仓库原始zubo.txt】=====
           if [ -f "zubo.txt" ] && [ -s "zubo.txt" ]; then
             cp zubo.txt zubo_bf.txt
-            echo "✅ 备份旧zubo.txt"
+            echo "✅ 已备份运行前zubo.txt为zubo_bf.txt"
           else
+            echo "ℹ️ 仓库无有效旧zubo.txt，新建空备份"
             rm -f zubo_bf.txt
             touch zubo_bf.txt
           fi
           
-          # 执行采集脚本
+          # =====【第二步：运行采集、测速脚本】=====
           python ./CaijiBeijingip.py
           bash ./CaijiBeijingip.sh 0
 
-          # 拼接城市txt
+          # =========【原样拼接城市原文，无额外标题】=========
+          echo "===按定义顺序拼接城市文件到zubo.txt==="
           > zubo.txt
+          # 在这里自定义城市顺序，新增城市直接追加一行
           city_list=(
             "txt/Beijing_dianxin.txt"
             "txt/Shanghai_dianxin.txt"
             #"txt/Guangzhou_dianxin.txt"
           )
+
           for f in "${city_list[@]}"; do
             if [ -f "$f" ] && [ -s "$f" ]; then
               cat "$f" >> zubo.txt
-              echo "✅ 拼接：$f"
+              echo "✅ 已拼接文件：$f"
+            else
+              echo "⏭️ 跳过空/不存在文件：$f"
             fi
           done
+
+          #兜底，防止0字节空文件
           if [ ! -s zubo.txt ]; then
             echo "# 暂无测速IP数据" > zubo.txt
           fi
+          # ==================================================
 
-          # 校验文件，空就回滚备份
           NEW_ZUBO="./zubo.txt"
-          if [ ! -f "$NEW_ZUBO" ] || [ ! -s "$NEW_ZUBO" ]; then
-            echo "⚠️ zubo.txt为空，恢复备份"
+          
+          # =====【第三步：校验新文件，空就回滚】=====
+          if [ -f "$NEW_ZUBO" ] && [ -s "$NEW_ZUBO" ]; then
+            echo "✅ 全局合并完成，zubo.txt生成成功"
+          else
+            echo "⚠️ 警告：新zubo.txt不存在或者是空！尝试恢复旧备份文件"
             if [ -f "zubo_bf.txt" ] && [ -s "zubo_bf.txt" ]; then
               cp zubo_bf.txt zubo.txt
+              echo "✅ 已恢复备份文件"
+            else
+              echo "ℹ️ 无有效旧备份，跳过恢复"
             fi
           fi
           
-          echo "====行数调试===="
+          # 调试输出：只打印行数
+          echo "====调试输出===="
           wc -l txt/*.txt
           wc -l zubo.txt
 
-          # 生成CF部署用的m3u和index.html
+          # ==========【关键：复制一份明文 zubo.m3u 用于CF部署，保留不动！】==========
           cp zubo.txt zubo.m3u
+          echo "✅ 已生成 zubo.m3u 用于Cloudflare Pages部署"
+          # 兜底页面，保证部署目录有静态文件
           echo "<pre>IPTV源：<a href='./zubo.m3u'>zubo.m3u</a></pre>" > index.html
-          echo "✅ 生成zubo.m3u 和 index.html"
+          echo "✅ 生成index.html兜底页面"
         env:
           ZUBO_PASSWORD: ${{ secrets.ZUBO_PASSWORD }}
 
-      # 部署到Cloudflare Pages
+      # ====================== ✅【Cloudflare Pages部署 wrangler-action@v4 官方新版】 ======================
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/wrangler-action@v4
         continue-on-error: true
@@ -113,63 +138,71 @@ jobs:
           accountId: ${{ secrets.CF_ACCOUNT_ID }}
           command: pages deploy . --project-name=iptv
 
-      # 加密zubo.txt，加密完成删除明文
+      # ==========【1. 加密zubo.txt生成zubo.enc，部署后删除zubo.txt明文】==========
       - name: 加密zubo.txt生成zubo.enc
         run: |
           log_print() { echo "[$(date +'%Y-%m-%d %H:%M:%S')] $1"; }
           if [ -f "zubo.txt" ] && [ -s "zubo.txt" ]; then
-            log_print "开始加密zubo.txt"
+            log_print "检测到zubo.txt，开始加密生成 zubo.enc"
             openssl enc -aes-256-cbc -salt -in zubo.txt -out zubo.enc -k "$ZUBO_PASSWORD"
+            # 判断加密命令是否执行成功
             if [ $? -eq 0 ] && [ -f "zubo.enc" ] && [ -s "zubo.enc" ]; then
-              log_print "✅ 加密成功，删除明文zubo.txt"
+              log_print "✅ 加密成功，删除明文 zubo.txt"
               rm -f zubo.txt
             else
-              log_print "❌ 加密失败，保留明文"
+              log_print "❌ 加密失败，保留明文zubo.txt用于排查问题"
             fi
           else
-            log_print "跳过加密，zubo.txt不存在或为空"
+            log_print "zubo.txt 文件为空或不存在，跳过加密，不生成zubo.enc"
           fi
         env:
           ZUBO_PASSWORD: ${{ secrets.ZUBO_PASSWORD }}
 
-      # 打包加密整个txt目录，加密后删除txt文件夹
-      - name: 打包加密txt目录全部城市文件
+      # ==========【2. 打包加密整个txt目录，加密成功删除txt明文文件夹】==========
+      - name: 打包加密txt目录全部城市文件，加密后删除txt明文
         run: |
           log_print() { echo "[$(date +'%Y-%m-%d %H:%M:%S')] $1"; }
           if [ -d "txt" ] && [ -n "$(ls -A txt)" ]; then
-            log_print "打包txt目录"
+            log_print "开始打包txt目录全部文件"
             zip -r txt_backup.zip txt/
             openssl enc -aes-256-cbc -salt -in txt_backup.zip -out txt_all.enc -k "$ZUBO_PASSWORD"
             if [ $? -eq 0 ] && [ -f "txt_all.enc" ] && [ -s "txt_all.enc" ]; then
-              log_print "✅ 打包加密成功，删除txt明文文件夹"
+              log_print "✅ txt目录打包加密成功，删除明文txt文件夹"
               rm -rf txt/
               rm -f txt_backup.zip
             else
-              log_print "❌ txt加密失败，保留txt文件夹"
+              log_print "❌ txt加密失败，保留txt目录用于排查"
             fi
           else
-            log_print "txt目录为空，跳过打包"
+            log_print "txt目录为空或不存在，跳过打包加密"
           fi
         env:
           ZUBO_PASSWORD: ${{ secrets.ZUBO_PASSWORD }}
 
-      # Git提交更新后的加密文件
-      - name: 提交更新加密文件
+      # 文件校验恢复完成之后，再执行git add
+      - name: 更新源（文件变更才提交，无变化直接跳过）
         run: |
           cd $GITHUB_WORKSPACE
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
+          
           git reset HEAD .
+          
+          # ✅重点：移除 git add txt/，txt文件夹已经在上一步被脚本删掉，不再上传明文！
+          # 提交：zubo.enc（zubo加密包） + txt_all.enc（所有城市txt加密包） + ip + logs
           if [[ -n $(git status --porcelain zubo.enc txt_all.enc ip/ logs/) ]]; then
-            echo "✅ 检测到文件更新，准备提交"
+            echo "✅ 源文件检测到更新，准备提交"
             git add zubo.enc
             git add txt_all.enc
             git add ip/
             git add logs/
+            # 【重点：不git add zubo.m3u，明文不会保存到github仓库】
             if [[ -n $(git status --porcelain) ]]; then
-              git commit -m "🤖自动更新 ${{ github.run_id }}"
+              git commit -m "🤖 GitHub Actions自动更新多城市源 ${{ github.run_id }}"
               git push
+            else
+              echo "✅ git无变更，跳过提交"
             fi
           else
-            echo "ℹ️ 文件无变更，跳过提交"
+            echo "ℹ️ 文件无更新，跳过git提交"
           fi
