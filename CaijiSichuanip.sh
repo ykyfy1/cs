@@ -74,7 +74,7 @@ speed2kb(){
 if [ $# -eq 0 ]; then
   log_print "开始测试······"
   log_print "在5秒内输入城市编号，0=批量跑全部城市"
-  log_print "1:北京  2:上海  3:广州"
+  log_print "1:四川  2:上海  3:广州"
   read -t 5 -p "超时未输入,默认批量跑全部城市(0)" city_choice
 
   if [ -z "$city_choice" ]; then
@@ -92,7 +92,7 @@ mkdir -p ip txt template
 # ========= 多城市配置，自行修改stream组播地址 =========
 case $city_choice in
     1)
-        city="Beijing_dianxin"
+        city="Sichuan_dianxin"
         stream="rtp/239.94.0.103:5140"
         ;;
     2)
