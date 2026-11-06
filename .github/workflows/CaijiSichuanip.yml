@@ -2,8 +2,8 @@ name: CaijiSichuanip
 permissions:
   contents: write
 on:
-  #schedule:
-    #- cron: "01 20 * * *"
+  schedule:
+    - cron: "01 20 * * *"
   workflow_dispatch:
 jobs:
   run-script:
