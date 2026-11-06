@@ -136,7 +136,7 @@ jobs:
         with:
           apiToken: ${{ secrets.CF_API_TOKEN }}
           accountId: ${{ secrets.CF_ACCOUNT_ID }}
-          command: pages deploy . --project-name=iptv
+          command: pages deploy . --project-name=scdx
 
       # 文件校验恢复完成之后，再执行git add
       - name: 更新源（文件变更才提交，无变化直接跳过）
