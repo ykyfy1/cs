@@ -6,8 +6,8 @@ SPEED_CONCURRENT=10     # 测速curl并发，GA建议 8~10
 PROGRESS_STEP=20        # 每处理多少个IP打印一次进度
 NC_RETRY=1              # 端口探测失败重试次数（0=关闭重试）
 SPEED_RETRY=0           # 测速curl失败重试次数（0=关闭，1=重试1次）
-CITY_TOP_COUNT=30       # 单个城市结果保留前N条
-MERGE_TOP_COUNT=100     # 合并全部城市后保留前N条
+CITY_TOP_COUNT=300       # 单个城市结果保留前N条
+MERGE_TOP_COUNT=500     # 合并全部城市后保留前N条
 SAVE_LOG=1              # 1=保存日志，0=关闭日志保存
 MIN_SPEED_KB=30         # >=30k 才保留写入zubo.txt，B单位全部丢弃
 # ====================================================================
